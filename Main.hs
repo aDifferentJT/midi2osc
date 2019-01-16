@@ -36,6 +36,9 @@ mapFst f (x, y) = (f x, y)
 mapSnd :: (a -> b) -> (c, a) -> (c, b)
 mapSnd f (x, y) = (x, f y)
 
+mkArray :: [a] -> Array Int a
+mkArray xs = listArray (0, length xs - 1) xs
+
 bytes :: Integral a => a -> [Word8]
 bytes = unfoldr f
   where f 0 = Nothing
@@ -101,6 +104,8 @@ outputPresetsOfType = Map.fromList
     [ ("--", "")
     , ("Fade ch", "OSCfade")
     , ("Mute ch", "OSCmute")
+    , ("Gain ch", "OSCgain")
+    , ("Other", "OSCother")
     ])
   , ("BankSwitch",
     [ ("--", "")
@@ -112,6 +117,8 @@ outputPresets :: Map.Map String (String -> String)
 outputPresets = Map.fromList
   [ ("OSCfade", printf "\"/ch/%02d/mix/fader\"" . (read :: String -> Int))
   , ("OSCmute", printf "\"/ch/%02d/mix/on\"" . (read :: String -> Int))
+  , ("OSCgain", printf "\"/headamp/%02d/gain\"" . (read :: String -> Int))
+  , ("OSCother", ("\"" ++) . (++ "\""))
   , ("BankSwitch", id)
   ]
 
@@ -139,13 +146,116 @@ open :: String -> IO Mapping
 open filename = catch (either (const . throwIO . userError $ "Invalid file") return . Serialize.decode =<< readFile filename) (const . return $ Map.empty :: IOException -> IO Mapping)
 
 currentMapping :: State -> IO Mapping
-currentMapping state = readIORef (mappings state) >>= (<$> readIORef (currentMappingIndex state)) . (!)
+currentMapping state = (!) <$> readIORef (mappings state) <*> readIORef (currentMappingIndex state)
 
 makeUIOption :: (String, String) -> UI Element
 makeUIOption (t, v) = UI.option # set UI.text t # set UI.value v
 
+buildPage :: State -> UI.Window -> UI ()
+buildPage state win = do
+  return win # set UI.title "midi2osc"
+  bankLabel <- UI.label
+  button <- UI.button # set UI.text "Select control"
+                      # set UI.style [("border-style","outset")]
+  controlLabel <- UI.label # set UI.text "Please select a control first"
+  outputType <- UI.select # set UI.enabled False
+                          # set UI.children []
+                          #+ map makeUIOption outputTypes
+  outputPreset <- UI.select # set UI.enabled False
+  outputField <- UI.input # set UI.enabled False
+  currentControlLabel <- UI.label # set UI.text "No control moved"
+  getBody win #+
+    [ element bankLabel
+    , element button
+    , element controlLabel
+    , element outputType
+    , element outputPreset
+    , element outputField
+    , UI.hr
+    , element currentControlLabel
+    ]
+  unregBankSwitch <- liftIO $ register (eBankSwitch state) $ \_ -> runUI win $ do
+    i <- liftIO . readIORef . currentMappingIndex $ state
+    element bankLabel # set UI.text ("Bank: " ++ show i)
+    return ()
+  liftIO (hBankSwitch state ())
+  on UI.click button $ const $ do
+    element button # set UI.style [("border-style","inset")]
+    liftIO (writeIORef (selecting state) True)
+  unregEnter <- liftIO $ newIORef (return ())
+  unregMoved <- liftIO $ register (eMoved state) $ \controlState -> runUI win $ do
+    let control = midiControlFromState controlState
+    selectingB <- liftIO . readIORef . selecting $ state
+    if selectingB then do
+      liftIO (writeIORef (selecting state) False)
+      element button # set UI.style [("border-style","outset")]
+      element controlLabel # set UI.text ("Control: " ++ case control of
+          MidiButton n -> "Button " ++ show n
+          MidiFader  n -> "Fader "  ++ show n
+          MidiUnknown  -> "Unknown"
+        )
+      element outputType # set UI.enabled True
+
+      liftIO . join $ readIORef unregEnter
+      liftIO . writeIORef unregEnter =<< (liftIO $ register (UI.keypress outputField) $ \key -> runUI win $ case key of
+        '\r' -> do
+          oTypeI <- get UI.selection outputType
+          let oType = fromMaybe "" (snd . (outputTypes !!) <$> oTypeI)
+          presetI <- get UI.selection outputPreset
+          let preset = fromMaybe "" (snd . ((outputPresetsOfType Map.! oType) !!) <$> presetI)
+          let presetF = outputPresets Map.! preset
+          newOutput <- read . (oType ++) . (' ' :) . presetF <$> (element outputField >>= get UI.value)
+
+          element outputType # set UI.enabled False
+                             # set UI.selection (Just 0)
+          element outputPreset # set UI.enabled False
+                               # set UI.selection (Just 0)
+          element outputField # set UI.enabled False
+                              # set UI.value ""
+
+          i <- liftIO . readIORef . currentMappingIndex $ state
+          liftIO (modifyIORef' (mappings state) (\ms -> ms // [(i, Map.insert control newOutput (ms ! i))]))
+          liftIO $ currentMapping state >>= save (filenames state !! i)
+          case control of
+            MidiButton n -> liftIO (modifyIORef' (buttonStates state) (Map.insert n False))
+            _ -> return ()
+        _ -> return ()
+        )
+      return ()
+    else return ()
+    mapping <- liftIO $ currentMapping state
+    element currentControlLabel  # set UI.text ("Control: " ++ case controlState of
+        MidiButtonState n v -> "Button " ++ show n ++ "\tLevel: " ++ show v
+        MidiFaderState  n v -> "Fader "  ++ show n ++ "\tLevel: " ++ show v
+        MidiUnknownState    -> "Unknown"
+      ++ maybe "\tNot mapped" ("\tMapping: " ++) (show <$> Map.lookup control mapping))
+    return ()
+  unregSelectOutputType <- liftIO $ register (UI.selectionChange outputType) $ \oTypeI -> runUI win $ do
+    let oType = fromMaybe "" (snd . (outputTypes !!) <$> oTypeI)
+    if oType == ""
+      then do
+        element outputPreset # set UI.enabled False
+                             # set UI.children []
+        element outputField # set UI.enabled False
+                            # set UI.value ""
+      else element outputPreset # set UI.enabled True
+                                # set UI.children []
+                                #+ map makeUIOption (outputPresetsOfType Map.! oType)
+    return ()
+  unregSelectOutputPreset <- liftIO $ register (UI.selectionChange outputPreset) $ \presetI -> runUI win $ do
+    oTypeI <- get UI.selection outputType
+    let oType = fromMaybe "" (snd . (outputTypes !!) <$> oTypeI)
+    let preset = fromMaybe "" (snd . ((outputPresetsOfType Map.! oType) !!) <$> presetI)
+    if preset == ""
+      then element outputField # set UI.enabled False
+                               # set UI.value ""
+      else element outputField # set UI.enabled True
+    return ()
+  return ()
+
 data State = State
-  { eMoved :: Event MidiControlState
+  { filenames :: [String]
+  , eMoved :: Event MidiControlState
   , hMoved :: Handler MidiControlState
   , eBankSwitch :: Event ()
   , hBankSwitch :: Handler ()
@@ -155,19 +265,18 @@ data State = State
   , buttonStates :: IORef ButtonStates
   }
 
-mkState = uncurry . uncurry State
+mkState = (uncurry .) . uncurry . State
 
 main :: IO ()
 main = do
   either (error "Cannot initialize Midi") id <$> initialize
   (map (prettyDevice >=> putStrLn) . upTo) <$> countDevices >>= sequence
 
-  filenames <- getArgs
-
-  state <- mkState <$> newEvent
+  state <- mkState <$> getArgs
+                   <*> newEvent
                    <*> newEvent
                    <*> newIORef False
-                   <*> (newIORef =<< listArray (0, length filenames - 1) <$> (sequence $ map open filenames))
+                   <*> (newIORef =<< mkArray <$> (sequence . map open =<< getArgs))
                    <*> newIORef 0
                    <*> newIORef (Map.empty)
   writeIORef (buttonStates state)
@@ -179,124 +288,9 @@ main = do
     . elems
     <$> readIORef (mappings state)
 
-{-
-  (eMoved, hMoved) <- newEvent
-  (eBankSwitch, hBankSwitch) <- newEvent
-  selecting <- newIORef False
-  mappings <- newIORef =<< listArray (0, length filenames - 1) <$> (sequence $ map open filenames)
-  currentMappingIndex <- newIORef 0
-  buttonStates <- newIORef
-                . Map.fromList
-                . map (\(MidiButton n,_) -> (n, False))
-                . filter (\c -> case c of (MidiButton _,_) -> True; _ -> False)
-                . concat
-                . map Map.toList
-                . elems
-              =<< readIORef mappings
--}
-
   forkIO $ startGUI defaultConfig
     { jsPort   = Just 8023
-    } $ \win -> do
-      return win # set UI.title "midi2osc"
-      bankLabel <- UI.label
-      button <- UI.button # set UI.text "Select control"
-                          # set UI.style [("border-style","outset")]
-      controlLabel <- UI.label # set UI.text "Please select a control first"
-      outputType <- UI.select # set UI.enabled False
-                              # set UI.children []
-                              #+ map makeUIOption outputTypes
-      outputPreset <- UI.select # set UI.enabled False
-      outputField <- UI.input # set UI.enabled False
-      currentControlLabel <- UI.label # set UI.text "No control moved"
-      getBody win #+
-        [ element bankLabel
-        , element button
-        , element controlLabel
-        , element outputType
-        , element outputPreset
-        , element outputField
-        , UI.hr
-        , element currentControlLabel
-        ]
-      unregBankSwitch <- liftIO $ register (eBankSwitch state) $ \_ -> runUI win $ do
-        i <- liftIO . readIORef . currentMappingIndex $ state
-        element bankLabel # set UI.text ("Bank: " ++ show i)
-        return ()
-      liftIO (hBankSwitch state ())
-      on UI.click button $ const $ do
-        element button # set UI.style [("border-style","inset")]
-        liftIO (writeIORef (selecting state) True)
-      unregEnter <- liftIO $ newIORef (return ())
-      unregMoved <- liftIO $ register (eMoved state) $ \controlState -> runUI win $ do
-        let control = midiControlFromState controlState
-        selectingB <- liftIO . readIORef . selecting $ state
-        if selectingB then do
-          liftIO (writeIORef (selecting state) False)
-          element button # set UI.style [("border-style","outset")]
-          element controlLabel # set UI.text ("Control: " ++ case control of
-              MidiButton n -> "Button " ++ show n
-              MidiFader  n -> "Fader "  ++ show n
-              MidiUnknown  -> "Unknown"
-            )
-          element outputType # set UI.enabled True
-
-          liftIO . join $ readIORef unregEnter
-          liftIO . writeIORef unregEnter =<< (liftIO $ register (UI.keypress outputField) $ \key -> runUI win $ case key of
-            '\r' -> do
-              oTypeI <- get UI.selection outputType
-              let oType = fromMaybe "" (snd . (outputTypes !!) <$> oTypeI)
-              presetI <- get UI.selection outputPreset
-              let preset = fromMaybe "" (snd . ((outputPresetsOfType Map.! oType) !!) <$> presetI)
-              let presetF = outputPresets Map.! preset
-              newOutput <- read . (oType ++) . (' ' :) . presetF <$> (element outputField >>= get UI.value)
-
-              element outputType # set UI.enabled False
-                                 # set UI.selection (Just 0)
-              element outputPreset # set UI.enabled False
-                                   # set UI.selection (Just 0)
-              element outputField # set UI.enabled False
-                                  # set UI.value ""
-
-              i <- liftIO . readIORef . currentMappingIndex $ state
-              liftIO (modifyIORef' (mappings state) (\ms -> ms // [(i, Map.insert control newOutput (ms ! i))]))
-              liftIO $ currentMapping state >>= save (filenames !! i)
-              case control of
-                MidiButton n -> liftIO (modifyIORef' (buttonStates state) (Map.insert n False))
-                _ -> return ()
-            _ -> return ()
-            )
-          return ()
-        else return ()
-        mapping <- liftIO $ currentMapping state
-        element currentControlLabel  # set UI.text ("Control: " ++ case controlState of
-            MidiButtonState n v -> "Button " ++ show n ++ "\tLevel: " ++ show v
-            MidiFaderState  n v -> "Fader "  ++ show n ++ "\tLevel: " ++ show v
-            MidiUnknownState    -> "Unknown"
-          ++ maybe "\tNot mapped" ("\tMapping: " ++) (show <$> Map.lookup control mapping))
-        return ()
-      unregSelectOutputType <- liftIO $ register (UI.selectionChange outputType) $ \oTypeI -> runUI win $ do
-        let oType = fromMaybe "" (snd . (outputTypes !!) <$> oTypeI)
-        if oType == ""
-          then do
-            element outputPreset # set UI.enabled False
-                                 # set UI.children []
-            element outputField # set UI.enabled False
-                                # set UI.value ""
-          else element outputPreset # set UI.enabled True
-                                    # set UI.children []
-                                    #+ map makeUIOption (outputPresetsOfType Map.! oType)
-        return ()
-      unregSelectOutputPreset <- liftIO $ register (UI.selectionChange outputPreset) $ \presetI -> runUI win $ do
-        oTypeI <- get UI.selection outputType
-        let oType = fromMaybe "" (snd . (outputTypes !!) <$> oTypeI)
-        let preset = fromMaybe "" (snd . ((outputPresetsOfType Map.! oType) !!) <$> presetI)
-        if preset == ""
-          then element outputField # set UI.enabled False
-                                   # set UI.value ""
-          else element outputField # set UI.enabled True
-        return ()
-      return ()
+    } (buildPage state)
 
   device <- readLn :: IO Int
   stream <- either (error "Cannot open device") id <$> openInput device
