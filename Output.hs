@@ -1,17 +1,18 @@
-module Output (Output, outputTypes, outputPresetsOfType, outputPresets, performOutput) where
+module Output (Output, outputTypes, outputPresetsOfType, outputPresets, performOutput, updateOutput) where
 
 import Core
+import Feedback
 import Midi
 import OSC
 import OutputCore
-import qualified Sound.OSC as OSC
+import Utils
 
-import Control.Monad.IO.Class
-import Data.IORef
-import Data.Map (Map, fromList)
-import Data.Serialize (Serialize)
-import GHC.Generics
-import Text.Printf
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import qualified Data.Array as Array ((!))
+import Data.Array ((//))
+import Data.IORef (readIORef, writeIORef, modifyIORef')
+import Data.Map.Strict (Map, fromList, insert)
+import Text.Printf (printf)
 
 outputTypes :: [(String, String)]
 outputTypes = [("--", ""), ("OSC", "OSC"), ("Switch Bank", "BankSwitch")]
@@ -22,8 +23,10 @@ outputPresetsOfType = fromList
     [ ("--", "")
     , ("Fade ch", "OSCfade")
     , ("Mute ch", "OSCmute")
+    , ("On ch"  , "OSCon"  )
     , ("Gain ch", "OSCgain")
     , ("Other", "OSCother")
+    , ("Other (Inverted)", "OSCotherInverted")
     ])
   , ("BankSwitch",
     [ ("--", "")
@@ -31,17 +34,26 @@ outputPresetsOfType = fromList
     ])
   ]
 
-outputPresets :: Map String (String -> String)
+outputPresets :: Map String (String -> Output)
 outputPresets = fromList
-  [ ("OSCfade", printf "\"/ch/%02d/mix/fader\"" . (read :: String -> Int))
-  , ("OSCmute", printf "\"/ch/%02d/mix/on\"" . (read :: String -> Int))
-  , ("OSCgain", printf "\"/headamp/%02d/gain\"" . (read :: String -> Int))
-  , ("OSCother", ("\"" ++) . (++ "\""))
-  , ("BankSwitch", id)
+  [ ("OSCfade", OSC False . printf "/ch/%02d/mix/fader" . (read :: String -> Int))
+  , ("OSCmute", OSC True  . printf "/ch/%02d/mix/on"    . (read :: String -> Int))
+  , ("OSCon"  , OSC False . printf "/ch/%02d/mix/on"    . (read :: String -> Int))
+  , ("OSCgain", OSC False . printf "/headamp/%02d/gain" . (read :: String -> Int))
+  , ("OSCother", OSC False)
+  , ("OSCotherInverted", OSC True)
+  , ("BankSwitch", BankSwitch . read)
   ]
 
 performOutput :: MonadIO m => State -> (Output, Float) -> m ()
-performOutput _     (Print x,      _    ) = liftIO $ print x
-performOutput state (OSC path,     value) = sendOSC . OSC.Message path . (:[]) . OSC.Float $ value
-performOutput state (BankSwitch n, _    ) = liftIO $ writeIORef (currentMappingIndex state) n >> hBankSwitch state ()
+performOutput _     (Print x,               _) = liftIO $ print x
+performOutput _     (OSC inverted path,     v) = setOSCValue path (invert inverted v)
+performOutput state (BankSwitch n,          _) = liftIO $ writeIORef (currentMappingIndex state) n >> hBankSwitch state ()
+
+updateOutput :: State -> PMStream -> MidiControl -> Output -> IO ()
+updateOutput state streamFb control newOutput = do
+  i <- readIORef . currentMappingIndex $ state
+  modifyIORef' (mappings state) (\ms -> ms // [(i, insert control newOutput (ms Array.! i))])
+  currentMapping state >>= save (filenames state !! i)
+  addFeedback streamFb control newOutput
 

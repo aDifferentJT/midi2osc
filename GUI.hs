@@ -5,23 +5,20 @@ import Midi
 import Output
 
 import Prelude hiding (lookup)
-import Control.Concurrent
-import Control.Monad
-import qualified Data.Array as Array
-import Data.Array hiding ((!))
-import Data.IORef
-import Data.Map.Strict (lookup, empty, (!), insert, fromList, toList)
-import Data.Maybe
+import Control.Concurrent (forkIO)
+import Control.Monad (join)
+import Data.IORef (readIORef, newIORef, writeIORef)
+import Data.Map.Strict (lookup, (!))
+import Data.Maybe (maybe, fromMaybe)
 
 import qualified Graphics.UI.Threepenny      as UI
 import           Graphics.UI.Threepenny.Core hiding (empty)
-import           Reactive.Threepenny         hiding (empty)
 
 makeUIOption :: (String, String) -> UI Element
 makeUIOption (t, v) = UI.option # set UI.text t # set UI.value v
 
-buildPage :: State -> UI.Window -> UI ()
-buildPage state win = do
+buildPage :: State -> PMStream -> UI.Window -> UI ()
+buildPage state streamFb win = do
   return win # set UI.title "midi2osc"
   bankLabel <- UI.label
   button <- UI.button # set UI.text "Select control"
@@ -75,7 +72,7 @@ buildPage state win = do
           presetI <- get UI.selection outputPreset
           let preset = fromMaybe "" (snd . ((outputPresetsOfType ! oType) !!) <$> presetI)
           let presetF = outputPresets ! preset
-          newOutput <- read . (oType ++) . (' ' :) . presetF <$> (element outputField >>= get UI.value)
+          newOutput <- presetF <$> (element outputField >>= get UI.value)
 
           element outputType # set UI.enabled False
                              # set UI.selection (Just 0)
@@ -83,12 +80,8 @@ buildPage state win = do
                                # set UI.selection (Just 0)
           element outputField # set UI.enabled False
                               # set UI.value ""
-          i <- liftIO . readIORef . currentMappingIndex $ state
-          liftIO (modifyIORef' (mappings state) (\ms -> ms // [(i, insert control newOutput (ms Array.! i))]))
-          liftIO $ currentMapping state >>= save (filenames state !! i)
-          case control of
-            MidiButton n -> liftIO (modifyIORef' (buttonStates state) (insert n False))
-            _ -> return ()
+
+          liftIO $ updateOutput state streamFb control newOutput
         _ -> return ()
         )
       return ()
@@ -123,8 +116,8 @@ buildPage state win = do
   return ()
 
 
-runGUI :: State -> IO ()
-runGUI = (>> return ()) . forkIO . startGUI defaultConfig
+runGUI :: State -> PMStream -> IO ()
+runGUI = curry ((>> return ()) . forkIO . startGUI defaultConfig
     { jsPort   = Just 8023
-    } . buildPage
+    } . uncurry buildPage)
 
