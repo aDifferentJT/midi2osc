@@ -1,4 +1,10 @@
-module OSC (setOSCValue, getOSCValue, oscUDP) where
+module OSC
+  ( setOSCValue
+  , getOSCValueAsync
+  , getOSCValueSync
+  , OSCConnection
+  , openOSCConnection
+  ) where
 
 import Control.Concurrent (forkIO)
 import Control.Monad ((<=<))
@@ -6,26 +12,31 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 
 import qualified Sound.OSC as OSC (Datum (Int32, Int64, Float, Double))
 import Sound.OSC (UDP, openUDP, Message (Message), packet_to_message, Datum)
-import Sound.OSC.Transport.FD (withTransport, sendMessage, waitFor)
+import Sound.OSC (withTransport, sendMessage, waitFor)
 
-sendOSC :: MonadIO m => Message -> m ()
-sendOSC msg = liftIO $ withTransport oscUDP (\fd -> sendMessage fd msg)
+newtype OSCConnection = OSCConnection (IO UDP)
 
-oscUDP :: IO UDP
+sendOSC :: MonadIO m => OSCConnection -> Message -> m ()
+sendOSC (OSCConnection udp) msg = liftIO $ withTransport udp (sendMessage msg)
+
+openOSCConnection :: (String, Int) -> OSCConnection
+openOSCConnection = OSCConnection . uncurry openUDP
 --oscUDP = openUDP "192.168.1.1" 10024
-oscUDP = openUDP "169.254.147.198" 10024
+--oscUDP = openUDP "169.254.147.198" 10024
 
-setOSCValue :: MonadIO m => String -> Float -> m ()
-setOSCValue path = sendOSC . Message path . (:[]) . OSC.Float
+setOSCValue :: MonadIO m => OSCConnection -> String -> Float -> m ()
+setOSCValue conn path = sendOSC conn . Message path . (:[]) . OSC.Float
 
-getOSCValue :: String -> (Float -> IO ()) -> IO ()
-getOSCValue path callback = (>> return ()) . forkIO $ (
-  liftIO (withTransport oscUDP (\fd -> do
-    sendMessage fd $ Message path []
-    payload <- waitFor fd (getDataForPath path <=<  packet_to_message)
+getOSCValueAsync :: OSCConnection -> String -> (Float -> IO ()) -> IO ()
+getOSCValueAsync conn path callback = (>> return ()) . forkIO $ (getOSCValueSync conn path >>= callback)
+
+getOSCValueSync :: OSCConnection -> String -> IO Float
+getOSCValueSync (OSCConnection udp) path = 
+  liftIO (withTransport udp (do
+    sendMessage $ Message path []
+    payload <- waitFor (getDataForPath path <=<  packet_to_message)
     return $ floatFromDatum (head payload)
-    )) >>= callback
-    )
+    ))
 
 getDataForPath :: String -> Message -> Maybe [Datum]
 getDataForPath path (Message path' payload)
@@ -33,8 +44,9 @@ getDataForPath path (Message path' payload)
   | otherwise     = Nothing
 
 floatFromDatum :: Datum -> Float
-floatFromDatum (OSC.Int32 v) = fromIntegral v
-floatFromDatum (OSC.Int64 v) = fromIntegral v
-floatFromDatum (OSC.Float v) = v
+floatFromDatum (OSC.Int32  v) = fromIntegral v
+floatFromDatum (OSC.Int64  v) = fromIntegral v
+floatFromDatum (OSC.Float  v) = v
 floatFromDatum (OSC.Double v) = realToFrac v
+floatFromDatum  _             = error "OSC message doesn't contain a number"
 

@@ -1,60 +1,57 @@
-{-# LANGUAGE DeriveGeneric, DefaultSignatures, TupleSections #-}
+{-# LANGUAGE DeriveGeneric, DefaultSignatures, TupleSections, RecordWildCards #-}
 
 module Main (main) where
 
 import Core
-import Feedback
 import GUI
 import Midi
 import MidiCore
 import Output
-import OutputCore ()
-import Utils
 
 import Prelude hiding (lookup)
 import Control.Concurrent (threadDelay)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT), runMaybeT)
-import Data.IORef (readIORef)
-import Data.Map.Strict (lookup)
+import Data.Set (member)
 import System.Environment (getArgs)
 
-respondToControl :: State -> MidiControlState -> MaybeT IO (Output, Float)
-respondToControl state control = do
-  let v = midiValueFromState control
-  o <- MaybeT . (lookup (midiControlFromState control) <$>) $ currentMapping state
+respondToControl :: State -> ControlState -> MaybeT IO (Output, Float)
+respondToControl State{..} controlState = do
+  let v = midiValueFromState controlState
+  let ControlState control _ = controlState
+  o <- MaybeT (outputForControl State{..} <$> currentMapping <*> return control)
   return (o, v)
 
-eventCallback :: State -> PMStream -> MidiControlState -> IO ()
-eventCallback state streamFb control = do
-  selectingB <- readIORef . selecting $ state
-  runMaybeT $ if not selectingB then respondToControl state control >>= performOutput state else nothingT
-  hMoved state control
-  midiFeedback streamFb control
+eventCallback :: State -> ControlState -> IO ()
+eventCallback State{..} (ControlState c (MidiButtonValue v))
+  | member c bankLefts =
+    if v then do
+      bankLeft State{..}
+      addAllFeedbacks State{..}
+    else return ()
+  | member c bankRights =
+    if v then do
+      bankRight State{..}
+      addAllFeedbacks State{..}
+    else return ()
+eventCallback State{..} control = do
+  _ <- runMaybeT $ (respondToControl State{..} control >>= performOutput State{..})
+  hMoved control
+  midiFeedback State{..} control
   return ()
 
 main :: IO ()
 main = do
-  midiInitialise
+  state <- stateFromConf . head =<< getArgs
 
-  state <- defaultState =<< getArgs
+  runGUI state
 
-  device <- readLn :: IO Int
-  stream <- either (error ("Cannot open input device " ++ show device)) id <$> openInput device
+  addAllFeedbacks state
 
-  deviceFb <- readLn :: IO Int
-  streamFb <- either (error ("Cannot open output device " ++ show deviceFb)) id <$> openOutput deviceFb 0
-
-  runGUI state streamFb
-
-  addAllFeedbacks state streamFb
-
+  setLeds state (MidiButtonValue True) (allLeds state)
   threadDelay 500000
-  sequence $ map (\n -> setLed streamFb n (MidiButtonValue False)) allLeds
-  threadDelay 500000
-  sequence $ map (\n -> setLed streamFb n (MidiButtonValue True)) allLeds
-  threadDelay 500000
-  sequence $ map (\n -> setLed streamFb n (MidiButtonValue False)) allLeds
-  threadDelay 500000
+  setLeds state (MidiButtonValue False) (allLeds state)
 
-  processEvents (eventCallback state streamFb) stream
+  updateBankLeds state
+
+  processEvents state (eventCallback state)
 

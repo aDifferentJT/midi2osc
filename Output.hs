@@ -1,59 +1,84 @@
-module Output (Output, outputTypes, outputPresetsOfType, outputPresets, performOutput, updateOutput) where
+{-# LANGUAGE RecordWildCards #-}
+
+module Output
+  ( Output
+  , outputTypes
+  , outputTypeArgs
+  , outputPresetsOfType
+  , outputPresets
+  , outputChannelPresetsOfType
+  , outputChannelPresets
+  , outputActionPresetsOfType
+  , outputActionPresets
+  , performOutput
+  ) where
 
 import Core
-import Feedback
-import Midi
+import Feedback ()
 import OSC
 import OutputCore
 import Utils
 
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import qualified Data.Array as Array ((!))
-import Data.Array ((//))
-import Data.IORef (readIORef, writeIORef, modifyIORef')
-import Data.Map.Strict (Map, fromList, insert)
-import Text.Printf (printf)
+import Data.Map.Strict (Map, fromList, (!), keys)
 
 outputTypes :: [(String, String)]
-outputTypes = [("--", ""), ("OSC", "OSC"), ("Switch Bank", "BankSwitch")]
+outputTypes = [("OSC", "OSC")]
+
+outputTypeArgs :: State -> Map String [(String, String)]
+outputTypeArgs State{..} = fromList
+  [ ("OSC", map (\(Connection s) -> (s,s)) . keys $ oscConnections)
+  ]
 
 outputPresetsOfType :: Map String [(String, String)]
 outputPresetsOfType = fromList
   [ ("OSC",
-    [ ("--", "")
-    , ("Fade ch", "OSCfade")
-    , ("Mute ch", "OSCmute")
-    , ("On ch"  , "OSCon"  )
-    , ("Gain ch", "OSCgain")
-    , ("Other", "OSCother")
+    [ ("Other", "OSCother")
     , ("Other (Inverted)", "OSCotherInverted")
-    ])
-  , ("BankSwitch",
-    [ ("--", "")
-    , ("number", "BankSwitch")
     ])
   ]
 
-outputPresets :: Map String (String -> Output)
+outputPresets :: Map String (Factory String (Factory String Output))
 outputPresets = fromList
-  [ ("OSCfade", OSC False . printf "/ch/%02d/mix/fader" . (read :: String -> Int))
-  , ("OSCmute", OSC True  . printf "/ch/%02d/mix/on"    . (read :: String -> Int))
-  , ("OSCon"  , OSC False . printf "/ch/%02d/mix/on"    . (read :: String -> Int))
-  , ("OSCgain", OSC False . printf "/headamp/%02d/gain" . (read :: String -> Int))
-  , ("OSCother", OSC False)
-  , ("OSCotherInverted", OSC True)
-  , ("BankSwitch", BankSwitch . read)
+  [ ("OSCother", Function (\c -> Function (OSC (Connection c) False)))
+  , ("OSCotherInverted", Function (\c -> Function (OSC (Connection c) True)))
+  ]
+
+outputChannelPresetsOfType :: Map String [(String, String)]
+outputChannelPresetsOfType = fromList
+  [ ("OSC",
+    [ ("Input", "OSCinput")
+    , ("Aux", "OSCaux")
+    , ("LR"  , "OSClr"  )
+    ])
+  ]
+
+outputChannelPresets :: Map String (Factory String (Factory String OutputChannel))
+outputChannelPresets = fromList
+  [ ("OSCinput", Function (\c -> Function (OSCInput (Connection c) . (read :: String -> Int))))
+  , ("OSCaux", Function (\c -> Value . OSCAux . Connection $ c))
+  , ("OSClr",  Function (\c -> Value . OSCLR  . Connection $ c))
+  ]
+
+outputActionPresetsOfType :: Map String [(String, String)]
+outputActionPresetsOfType = fromList
+  [ ("OSC",
+    [ ("Fade", "OSCfade")
+    , ("Mute", "OSCmute")
+    , ("On"  , "OSCon"  )
+    , ("Gain", "OSCgain")
+    ])
+  ]
+
+outputActionPresets :: Map String (Factory String OutputAction)
+outputActionPresets = fromList
+  [ ("OSCfade", Value OSCFader)
+  , ("OSCmute", Value OSCMute)
+  , ("OSCon"  , Value OSCOn)
+  , ("OSCgain", Value OSCGain)
   ]
 
 performOutput :: MonadIO m => State -> (Output, Float) -> m ()
-performOutput _     (Print x,               _) = liftIO $ print x
-performOutput _     (OSC inverted path,     v) = setOSCValue path (invert inverted v)
-performOutput state (BankSwitch n,          _) = liftIO $ writeIORef (currentMappingIndex state) n >> hBankSwitch state ()
-
-updateOutput :: State -> PMStream -> MidiControl -> Output -> IO ()
-updateOutput state streamFb control newOutput = do
-  i <- readIORef . currentMappingIndex $ state
-  modifyIORef' (mappings state) (\ms -> ms // [(i, insert control newOutput (ms Array.! i))])
-  currentMapping state >>= save (filenames state !! i)
-  addFeedback streamFb control newOutput
+performOutput _         (Print x,     _) = liftIO $ print x
+performOutput State{..} (OSC c inv p, v) = setOSCValue (oscConnections ! c) p (invert inv v)
 

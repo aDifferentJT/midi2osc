@@ -1,51 +1,72 @@
 {-# LANGUAGE DeriveGeneric, DefaultSignatures #-}
 
-module MidiCore (MidiControl (MidiButton, MidiFader, MidiUnknown), MidiControlState (MidiButtonState, MidiFaderState, MidiUnknownState), midiControlFromState, MidiButtonId (MidiButtonId), MidiFaderId (MidiFaderId), MidiButtonValue (MidiButtonValue), buttonValueMap, MidiFaderValue (MidiFaderValue)) where
+module MidiCore
+  ( MidiControl (MidiButton, MidiFader, MidiUnknown)
+  , MidiId (MidiId)
+  , MidiValue (MidiButtonValue, MidiFaderValue)
+  , buttonValueMap
+  , faderValueMap
+  , Control (Control)
+  , ControlState (ControlState)
+  , openDevice
+  ) where
 
+import Utils
+
+import Control.Monad ((<=<), filterM)
 import Data.Serialize (Serialize)
 import Data.Word (Word8)
 import GHC.Generics (Generic)
 import Text.Printf (printf)
 
-newtype MidiButtonId = MidiButtonId Word8
-  deriving (Eq, Ord, Generic)
-instance Serialize MidiButtonId
+import Sound.PortMidi
 
-newtype MidiFaderId = MidiFaderId Word8
-  deriving (Eq, Ord, Generic)
-instance Serialize MidiFaderId
+newtype MidiId = MidiId Word8
+  deriving (Show, Eq, Ord, Generic)
+instance Serialize MidiId
 
-newtype MidiButtonValue = MidiButtonValue Bool
+data MidiValue = MidiButtonValue Bool | MidiFaderValue Word8
   deriving (Eq, Ord, Generic)
-instance Serialize MidiButtonValue
+instance Serialize MidiValue
+instance Show MidiValue where
+  show (MidiButtonValue v) = show v
+  show (MidiFaderValue  v) = printf "%03d" v
 
-buttonValueMap :: (Bool -> Bool) -> MidiButtonValue -> MidiButtonValue
+buttonValueMap :: (Bool -> Bool) -> MidiValue -> MidiValue
 buttonValueMap f (MidiButtonValue v) = MidiButtonValue (f v)
+buttonValueMap _ (MidiFaderValue  v) = MidiFaderValue v
 
-newtype MidiFaderValue = MidiFaderValue Word8
-  deriving (Eq, Ord, Generic)
-instance Serialize MidiFaderValue
+faderValueMap :: (Word8 -> Word8) -> MidiValue -> MidiValue
+faderValueMap f (MidiFaderValue v) = MidiFaderValue (f v)
+faderValueMap _ (MidiButtonValue  v) = MidiButtonValue v
 
-data MidiControl = MidiButton MidiButtonId | MidiFader MidiFaderId | MidiUnknown
+data MidiControl = MidiButton MidiId | MidiFader MidiId | MidiUnknown
   deriving (Eq, Ord, Generic)
 instance Serialize MidiControl
 
-data MidiControlState = MidiButtonState MidiButtonId MidiButtonValue | MidiFaderState MidiFaderId MidiFaderValue | MidiUnknownState
-  deriving (Eq, Ord, Generic)
-instance Serialize MidiControlState
-
-midiControlFromState :: MidiControlState -> MidiControl
-midiControlFromState (MidiButtonState n _) = MidiButton n
-midiControlFromState (MidiFaderState  n _) = MidiFader n
-midiControlFromState  MidiUnknownState     = MidiUnknown
-
 instance Show MidiControl where
-  show (MidiButton (MidiButtonId n)) = printf "Button: %03d" n
-  show (MidiFader  (MidiFaderId  n)) = printf "Fader:  %03d" n
+  show (MidiButton (MidiId n)) = printf "Button: %03d" n
+  show (MidiFader  (MidiId n)) = printf "Fader:  %03d" n
   show  MidiUnknown                  = "Unknown"
 
-instance Show MidiControlState where
-  show (MidiButtonState (MidiButtonId n) (MidiButtonValue v)) = printf "Button: %03d  Level: %s" n (show v)
-  show (MidiFaderState  (MidiFaderId  n) (MidiFaderValue  v)) = printf "Fader:  %03d  Level: %03d" n v
-  show  MidiUnknownState                                      = "Unknown"
+newtype Control = Control String
+  deriving (Eq, Ord, Generic)
+instance Serialize Control
+instance Show Control where
+  show (Control s) = s
+
+data ControlState = ControlState Control MidiValue
+instance Show ControlState where
+  show (ControlState c v) = printf "%s: %s" (show c) (show v)
+
+openDevice :: String -> IO (PMStream, PMStream)
+openDevice d = do
+  _ <- either (error "Cannot initialize Midi") id <$> initialize
+  devices <- filterM (return . (== d) . name <=< getDeviceInfo) . upTo =<< countDevices
+  if null devices then error (printf "No device named %s" d) else return ()
+  inDevice <- filterM (return . input <=< getDeviceInfo) devices
+  outDevice <- filterM (return . output <=< getDeviceInfo) devices
+  inStream <- either (error ("Cannot open input device " ++ show inDevice)) id <$> (openInput . head $ inDevice)
+  outStream <- either (error ("Cannot open output device " ++ show outDevice)) id <$> ((flip openOutput 0) . head $ outDevice)
+  return (inStream, outStream)
 
