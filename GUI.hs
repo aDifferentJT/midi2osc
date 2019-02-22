@@ -27,6 +27,7 @@ setButtonLatch b = set UI.style [("border-style", if b then "inset" else "outset
 
 latchingButton :: UI Element
 latchingButton = UI.button # setButtonLatch False
+                           # set UI.class_ "form-control"
 
 hideElement :: UI Element -> UI Element
 hideElement = set UI.style [("display", "none")]
@@ -42,6 +43,16 @@ instance Show Selected where
   show (SelectedAction  a)  = "Action: "  ++ show a
   show  SelectedNone        = "Nothing selected"
 
+-- BOOTSTRAP
+makeCol :: Bool -> [UI Element] -> UI Element
+makeCol tight = (UI.div # set UI.class_ (if tight then "col-sm-auto px-0" else "col-sm-auto") #+)
+
+makeRow :: [UI Element] -> UI Element
+makeRow = (UI.div # set UI.class_ "row" #+)
+
+makeContainer :: [[UI Element]] -> UI Element
+makeContainer = (UI.div # set UI.class_ "container" #+) . map makeRow
+
 buildPage :: State -> UI.Window -> UI ()
 buildPage State{..} win = do
 --  UI.addStyleSheet win "https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
@@ -52,45 +63,36 @@ buildPage State{..} win = do
   channelButton <- latchingButton # set UI.text "Select channel"
   actionButton  <- latchingButton # set UI.text "Select action"
 
-  selectedLabel <- UI.label # set UI.text "Nothing selected"
+  selectedLabel <- UI.label # set UI.class_ "form-text" # set UI.text "Nothing selected"
 
-  outputType          <- UI.select # hideElement
-  outputTypeArg       <- UI.select # hideElement
-  outputActionPreset  <- UI.select # hideElement
-  outputActionField   <- UI.input  # hideElement
-  outputChannelPreset <- UI.select # hideElement
-  outputChannelField  <- UI.input  # hideElement
+  outputType          <- UI.select # set UI.class_ "form-control" # hideElement
+  outputTypeArg       <- UI.select # set UI.class_ "form-control" # hideElement
+  outputActionPreset  <- UI.select # set UI.class_ "form-control" # hideElement
+  outputActionField   <- UI.input  # set UI.class_ "form-control" # hideElement
+  outputChannelPreset <- UI.select # set UI.class_ "form-control" # hideElement
+  outputChannelField  <- UI.input  # set UI.class_ "form-control" # hideElement
 
   currentControlLabel <- UI.label # set UI.text "No control moved"
   _ <- getBody win #+
-    [ UI.h1 # set UI.text "MIDI2OSC control panel"
-    , UI.h3 # set UI.children [bankLabel]
-    , UI.div # set UI.style [("display", "flex"), ("flex-direction", "row")]
-             #+
-      [ UI.div # set UI.style [("display", "flex"), ("flex-direction", "column")]
-               # set UI.children
-        [ controlButton
-        , channelButton
-        , actionButton
+    [ makeContainer
+      [ [makeCol False [UI.h1 # set UI.text "MIDI2OSC control panel"]]
+      , [makeCol False [UI.h3 # set UI.children [bankLabel]]]
+      , [ makeCol False
+            [ makeRow [makeCol False [element controlButton]]
+            , makeRow [makeCol False [element channelButton]]
+            , makeRow [makeCol False [element actionButton]]
+            ]
+        , makeCol False [element selectedLabel]
+        , makeCol True  [element outputType]
+        , makeCol True  [element outputTypeArg]
+        , makeCol True  [element outputActionPreset]
+        , makeCol True  [element outputActionField]
+        , makeCol True  [element outputChannelPreset]
+        , makeCol True  [element outputChannelField]
         ]
-      , UI.div # set UI.style
-        [ ("margin-top", "auto")
-        , ("margin-bottom", "auto")
-        , ("margin-left", "0px")
-        , ("margin-right", "auto")
-        ]
-        # set UI.children
-        [ selectedLabel
-        , outputType
-        , outputTypeArg
-        , outputActionPreset
-        , outputActionField
-        , outputChannelPreset
-        , outputChannelField
-        ]
+      , [makeCol False [UI.hr]]
+      , [makeCol False [element currentControlLabel]]
       ]
-    , UI.hr
-    , element currentControlLabel
     ]
 
   selecting <- liftIO . newIORef $ SelectingNone
