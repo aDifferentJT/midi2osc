@@ -44,6 +44,7 @@ instance Show Selected where
 
 buildPage :: State -> UI.Window -> UI ()
 buildPage State{..} win = do
+--  UI.addStyleSheet win "https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
   _ <- return win # set UI.title "midi2osc"
   bankLabel <- UI.label
 
@@ -339,5 +340,7 @@ buildPage State{..} win = do
 runGUI :: State -> IO ()
 runGUI = (>> return ()) . forkIO . startGUI defaultConfig
     { jsPort   = Just 8023
+    , jsCustomHTML = Just "custom.html"
+    , jsStatic = Just "static"
     } . buildPage
 
