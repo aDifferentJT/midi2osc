@@ -20,13 +20,13 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef', writeIORef)
 import Data.Map.Strict (Map, lookup, insert, delete, empty)
-import Distribution.System (buildOS, OS (Windows))
 
 import qualified Sound.OSC as OSC (Datum (Int32, Int64, Float, Double))
 import Sound.OSC
   (UDP
   , openUDP
   , udp_server
+  , udpServer
   , Message (Message)
   , Datum
   , withTransport
@@ -46,9 +46,7 @@ sendOSC (OSCConnection udp _ _ _ _) msg = liftIO $ withTransport udp (sendMessag
 sendOSCFromServer :: MonadIO m => OSCConnection -> Message -> m ()
 sendOSCFromServer (OSCConnection _ udp a p _) m = liftIO $ do
   AddrInfo{..}:_ <- getAddrInfo Nothing (Just a) (Just . show $ p)
-  if buildOS == Windows then return ()
-  else do
-    with_udp udp (\udp' -> sendTo udp' (Packet_Message m) (addrAddress))
+  with_udp udp (\udp' -> sendTo udp' (Packet_Message m) (addrAddress))
 
 sendRegisterMessages :: OSCConnection -> String -> IO ()
 sendRegisterMessages oscConn m = void . forkIO . infLoop $ do
@@ -59,10 +57,11 @@ openOSCConnection :: (String, Int, Int, [String]) -> IO OSCConnection
 openOSCConnection (a, pO, pF, regs) = do
   callbacks <- newIORef empty
   let udpO = openUDP a pO
-  let udpF = udp_server pF
-  let oscConn = OSCConnection udpO udpF a pO callbacks
+  let udpFI = udp_server pF
+  let udpFO = udpServer "0.0.0.0" pF
+  let oscConn = OSCConnection udpO udpFO a pO callbacks
   sequence_ (map (sendRegisterMessages oscConn) regs)
-  listenToOSC callbacks udpF
+  listenToOSC callbacks udpFI
   return $ oscConn
 
 --oscUDP = openUDP "192.168.1.1" 10024
