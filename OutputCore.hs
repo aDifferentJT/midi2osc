@@ -17,8 +17,8 @@ data Output = Print String | OSC Connection Bool String
   deriving Generic
 instance Serialize Output
 instance Show Output where
-  show (Print s)   = printf "Print \"%s\"" s
-  show (OSC c inv s) = printf (if inv then "OSC %s (Inverted): %s" else "OSC %s: %s") (show c) s
+  show (Print s)        = printf "Print \"%s\"" s
+  show (OSC c inv path) = printf (if inv then "OSC %s (Inverted): %s" else "OSC %s: %s") (show c) path
 
 data OutputChannel = OSCInput Connection Int | OSCAux Connection | OSCLR Connection
   deriving (Show, Generic)

@@ -15,7 +15,7 @@ import Data.Serialize (Serialize)
 import GHC.Generics (Generic)
 import Text.ParserCombinators.Parsec
 
-data Stmt = OSCAddress (String, String, Int)
+data Stmt = OSCAddress (String, String, Int, Int, [String])
           | Profile FilePath
           | MidiDevice String
           | Bank FilePath
@@ -39,8 +39,11 @@ oscAddressStmt = makeStmtParser
     sep
     a <- many1 (alphaNum <|> char '.')
     _ <- char ':'
-    p <- fromInteger <$> natural
-    return (l, a, p)
+    pO <- fromInteger <$> natural
+    sep
+    pF <- fromInteger <$> natural
+    regs <- try (sep >> sepBy1 (many1 (noneOf ['\n'])) (char ',')) <|> return []
+    return (l, a, pO, pF, regs)
     )
   OSCAddress
 
@@ -129,7 +132,7 @@ instance Show Action where
   show (Action s) = s
 
 data Conf = Conf
-  { confOSCAddresses :: [(Connection, (String, Int))]
+  { confOSCAddresses :: [(Connection, (String, Int, Int, [String]))]
   , confProfile :: FilePath
   , confMidiDevice :: String
   , confBanks :: [FilePath]
@@ -141,14 +144,14 @@ data Conf = Conf
   deriving Show
 
 processStmt :: Stmt -> Conf -> Conf
-processStmt (OSCAddress (l,a,p)) conf = conf { confOSCAddresses = (Connection l, (a,p)) : confOSCAddresses conf }
-processStmt (Profile fn)         conf = conf { confProfile = fn }
-processStmt (MidiDevice d)       conf = conf { confMidiDevice = d }
-processStmt (Bank fn)            conf = conf { confBanks = fn : confBanks conf }
-processStmt (BankLeft  x)        conf = conf { confBankLefts  = Control x : confBankLefts  conf }
-processStmt (BankRight x)        conf = conf { confBankRights = Control x : confBankRights conf }
-processStmt (ChannelGroup n cs)  conf = conf { confChannelGroups = (Channel n, map Control cs) : confChannelGroups conf }
-processStmt (ActionGroup  n cs) conf = conf { confActionGroups  = (Action  n, map Control cs) : confActionGroups  conf }
+processStmt (OSCAddress (l,a,pO,pF,regs)) conf = conf { confOSCAddresses = (Connection l, (a,pO,pF,regs)) : confOSCAddresses conf }
+processStmt (Profile fn)                  conf = conf { confProfile = fn }
+processStmt (MidiDevice d)                conf = conf { confMidiDevice = d }
+processStmt (Bank fn)                     conf = conf { confBanks = fn : confBanks conf }
+processStmt (BankLeft  x)                 conf = conf { confBankLefts  = Control x : confBankLefts  conf }
+processStmt (BankRight x)                 conf = conf { confBankRights = Control x : confBankRights conf }
+processStmt (ChannelGroup n cs)           conf = conf { confChannelGroups = (Channel n, map Control cs) : confChannelGroups conf }
+processStmt (ActionGroup  n cs)           conf = conf { confActionGroups  = (Action  n, map Control cs) : confActionGroups  conf }
 
 emptyConf :: Conf
 emptyConf = Conf [] "" "" [] [] [] [] []

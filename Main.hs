@@ -14,6 +14,8 @@ import Control.Monad.Trans.Maybe (MaybeT (MaybeT), runMaybeT)
 import Data.Set (member)
 import System.Environment (getArgs)
 
+import Reactive.Threepenny hiding (empty)
+
 respondToControl :: State -> ControlState -> MaybeT IO (Output, Float)
 respondToControl State{..} controlState = do
   let v = midiValueFromState controlState
@@ -50,6 +52,9 @@ main = do
   setLeds state (MidiButtonValue True) (allLeds state)
   threadDelay 500000
   setLeds state (MidiButtonValue False) (allLeds state)
+
+  _ <- register (eBankSwitch state) $ \_ -> refreshFeedbacks state ((>> return ()) . flip (setLed state) (MidiButtonValue False))
+  hBankSwitch state ()
 
   updateBankLeds state
 

@@ -1,52 +1,96 @@
+{-# LANGUAGE RecordWildCards #-}
+
 module OSC
   ( setOSCValue
-  , getOSCValueAsync
-  , getOSCValueSync
+  , askForOSCValue
+  , registerCallback
+  , unregisterCallback
+  , unregisterAllCallbacks
   , OSCConnection
   , openOSCConnection
   ) where
 
-import Control.Concurrent (forkIO)
-import Control.Monad ((<=<))
+import Utils
+
+import Prelude hiding (lookup)
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Maybe (MaybeT (MaybeT), runMaybeT)
+import Data.IORef (IORef, newIORef, readIORef, modifyIORef', writeIORef)
+import Data.Map.Strict (Map, lookup, insert, delete, empty)
 
 import qualified Sound.OSC as OSC (Datum (Int32, Int64, Float, Double))
-import Sound.OSC (UDP, openUDP, Message (Message), packet_to_message, Datum)
-import Sound.OSC (withTransport, sendMessage, waitFor)
+import Sound.OSC
+  (UDP
+  , openUDP
+  , udp_server
+  , Message (Message)
+  , Datum
+  , withTransport
+  , sendMessage
+  , recvMessages
+  , sendTo
+  , with_udp
+  , Packet (Packet_Message)
+  )
+import Network.Socket (AddrInfo (AddrInfo), addrAddress, getAddrInfo)
 
-newtype OSCConnection = OSCConnection (IO UDP)
+data OSCConnection = OSCConnection (IO UDP) (IO UDP) String Int (IORef (Map String (Float -> IO ())))
 
 sendOSC :: MonadIO m => OSCConnection -> Message -> m ()
-sendOSC (OSCConnection udp) msg = liftIO $ withTransport udp (sendMessage msg)
+sendOSC (OSCConnection udp _ _ _ _) msg = liftIO $ withTransport udp (sendMessage msg)
 
-openOSCConnection :: (String, Int) -> OSCConnection
-openOSCConnection = OSCConnection . uncurry openUDP
+sendOSCFromServer :: MonadIO m => OSCConnection -> Message -> m ()
+sendOSCFromServer (OSCConnection _ udp a p _) m = liftIO $ do
+  AddrInfo{..}:_ <- getAddrInfo Nothing (Just a) (Just . show $ p)
+  with_udp udp (\udp' -> sendTo udp' (Packet_Message m) (addrAddress))
+
+sendRegisterMessages :: OSCConnection -> String -> IO ()
+sendRegisterMessages oscConn m = (>> return ()) . forkIO . infLoop $ do
+  sendOSCFromServer oscConn (Message m [])
+  threadDelay 9000000
+
+openOSCConnection :: (String, Int, Int, [String]) -> IO OSCConnection
+openOSCConnection (a, pO, pF, regs) = do
+  callbacks <- newIORef empty
+  let udpO = openUDP a pO
+  let udpF = udp_server pF
+  let oscConn = OSCConnection udpO udpF a pO callbacks
+  sequence_ (map (sendRegisterMessages oscConn) regs)
+  listenToOSC callbacks udpF
+  return $ oscConn
+
 --oscUDP = openUDP "192.168.1.1" 10024
 --oscUDP = openUDP "169.254.147.198" 10024
 
 setOSCValue :: MonadIO m => OSCConnection -> String -> Float -> m ()
 setOSCValue conn path = sendOSC conn . Message path . (:[]) . OSC.Float
 
-getOSCValueAsync :: OSCConnection -> String -> (Float -> IO ()) -> IO ()
-getOSCValueAsync conn path callback = (>> return ()) . forkIO $ (getOSCValueSync conn path >>= callback)
+askForOSCValue :: MonadIO m => OSCConnection -> String -> m ()
+askForOSCValue conn path = sendOSCFromServer conn . Message path $ []
 
-getOSCValueSync :: OSCConnection -> String -> IO Float
-getOSCValueSync (OSCConnection udp) path = 
-  liftIO (withTransport udp (do
-    sendMessage $ Message path []
-    payload <- waitFor (getDataForPath path <=<  packet_to_message)
-    return $ floatFromDatum (head payload)
-    ))
+listenToOSC :: IORef (Map String (Float -> IO ())) -> IO UDP -> IO ()
+listenToOSC callbacks udp = (>> return ()) . forkIO . withTransport udp . infLoop $ do
+  recvMessages >>= sequence_ . map (\(Message path datum) -> lift . runMaybeT $ do
+    callback <- MaybeT $ lookup path <$> readIORef callbacks
+    lift . callback . floatFromDatum $ datum
+    )
 
-getDataForPath :: String -> Message -> Maybe [Datum]
-getDataForPath path (Message path' payload)
-  | path == path' = Just payload
-  | otherwise     = Nothing
+registerCallback :: OSCConnection -> String -> (Float -> IO ()) -> IO ()
+registerCallback (OSCConnection _ _ _ _ callbacks) path callback = modifyIORef' callbacks (insert path callback)
 
-floatFromDatum :: Datum -> Float
-floatFromDatum (OSC.Int32  v) = fromIntegral v
-floatFromDatum (OSC.Int64  v) = fromIntegral v
-floatFromDatum (OSC.Float  v) = v
-floatFromDatum (OSC.Double v) = realToFrac v
+unregisterCallback :: OSCConnection -> String -> IO ()
+unregisterCallback (OSCConnection _ _ _ _ callbacks) path = modifyIORef' callbacks (delete path)
+
+unregisterAllCallbacks :: OSCConnection -> IO ()
+unregisterAllCallbacks (OSCConnection _ _ _ _ callbacks) = writeIORef callbacks empty
+
+floatFromDatum :: [Datum] -> Float
+floatFromDatum [OSC.Int32  v] = fromIntegral v
+floatFromDatum [OSC.Int64  v] = fromIntegral v
+floatFromDatum [OSC.Float  v] = v
+floatFromDatum [OSC.Double v] = realToFrac v
+floatFromDatum []             = 0
 floatFromDatum  _             = error "OSC message doesn't contain a number"
 

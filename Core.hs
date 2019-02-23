@@ -21,6 +21,7 @@ module Core
   , controlsForChannel
   , controlsForAction
   , outputForControl
+  , outputsInMapping
   , State (State)
   , profile
   , stream
@@ -56,13 +57,13 @@ import ProfileParser
 
 import Prelude hiding (readFile, writeFile, lookup)
 import Control.Applicative ((<|>))
-import Control.Arrow (second)
 import Control.Exception (throwIO, catch, IOException)
 import Data.Array (Array, (!), (//))
 import Data.ByteString (readFile, writeFile)
 import Data.IORef (IORef, readIORef, newIORef, modifyIORef')
 import Data.Map.Strict (Map, empty, keys, lookup, insert, delete)
 import qualified Data.Map.Strict as Map (fromList)
+import Data.Maybe (mapMaybe)
 import Data.Serialize (Serialize, encode, decode)
 import Data.Set (Set)
 import qualified Data.Set as Set (fromList)
@@ -107,13 +108,14 @@ removeActionFromMapping a = mapAs (delete a)
 
 class Feedback where
   addFeedback :: State -> Control -> IO ()
-  clearFeedback :: Control -> IO ()
-  clearAllFeedbacks :: IO ()
+  clearFeedback :: State -> Control -> IO ()
+  clearAllFeedbacks :: State -> IO ()
   addAllFeedbacks :: State -> IO ()
   addChannelFeedbacks :: State -> Channel -> IO ()
   addActionFeedbacks :: State -> Action -> IO ()
   clearChannelFeedbacks :: State -> Channel -> IO ()
   clearActionFeedbacks :: State -> Action -> IO ()
+  refreshFeedbacks :: State -> (Control -> IO ()) -> IO ()
 
 updateOutput :: (a -> b -> Mapping -> Mapping) -> (State -> a -> IO ()) -> State -> a -> b -> IO ()
 updateOutput f fb State{..} x y = do
@@ -139,7 +141,7 @@ removeOutput f fb State{..} x = do
   fb State{..} x
 
 removeControlOutput :: Feedback => State -> Control -> IO ()
-removeControlOutput = removeOutput removeControlFromMapping (const clearFeedback)
+removeControlOutput = removeOutput removeControlFromMapping (clearFeedback)
 
 removeChannelOutput :: Feedback => State -> Channel -> IO ()
 removeChannelOutput = removeOutput removeChannelFromMapping clearChannelFeedbacks
@@ -170,6 +172,9 @@ outputForControl State{..} (Mapping cs chs as) c = lookup c cs
                                                  )
                                                )
 
+outputsInMapping :: State -> Mapping -> [Output]
+outputsInMapping state mapping = mapMaybe (outputForControl state mapping) (controlsInMapping state mapping)
+
 data State = State
   { profile :: Profile
   , stream :: PMStream
@@ -194,7 +199,7 @@ stateFromConf confFn = do
   conf <- openConf confFn
   profile <- openProfile . confProfile $ conf
   (stream, streamFb) <- openDevice . confMidiDevice $ conf
-  let oscConnections = Map.fromList . map (second openOSCConnection) . confOSCAddresses $ conf
+  oscConnections <- Map.fromList <$> (sequence . map (\(c,a) -> (c,) <$> openOSCConnection a) . confOSCAddresses $ conf)
   let filenames = mkArray . confBanks $ conf
   (eMoved, hMoved) <- newEvent
   (eBankSwitch, hBankSwitch) <- newEvent
@@ -206,7 +211,6 @@ stateFromConf confFn = do
   currentMappingIndex <- newIORef 0
   let currentMapping = (!) <$> readIORef mappings <*> readIORef currentMappingIndex
   return State{..}
-
 
 save :: String -> Mapping -> IO ()
 save filename mapping = writeFile filename . encode $ mapping
