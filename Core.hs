@@ -68,6 +68,7 @@ import Data.Maybe (mapMaybe)
 import Data.Serialize (Serialize, encode, decode)
 import Data.Set (Set)
 import qualified Data.Set as Set (fromList)
+import Data.Time.Clock (NominalDiffTime)
 import GHC.Generics (Generic)
 
 import Reactive.Threepenny hiding (empty)
@@ -182,7 +183,7 @@ data State = State
   , streamFb :: PMStream
   , oscConnections :: Map Connection OSCConnection
   , filenames :: Array Int String
-  , pollRate :: Int
+  , pollRate :: NominalDiffTime
   , eMoved :: Event ControlState
   , hMoved :: Handler ControlState
   , eBankSwitch :: Event ()
@@ -203,7 +204,7 @@ stateFromConf confFn = do
   (stream, streamFb) <- openDevice confMidiDevice
   oscConnections <- Map.fromList <$> (sequence . map (\(c,a) -> (c,) <$> openOSCConnection a) $ confOSCAddresses)
   let filenames = mkArray confBanks
-  let pollRate = confPollRate
+  let pollRate = 1 / (fromIntegral confPollRate)
   (eMoved, hMoved) <- newEvent
   (eBankSwitch, hBankSwitch) <- newEvent
   let bankLefts  = Set.fromList confBankLefts

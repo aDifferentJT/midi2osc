@@ -36,6 +36,7 @@ import Data.Map.Strict (Map, findWithDefault, alter, empty, insert)
 import Data.Maybe (mapMaybe)
 import Data.Set (Set, member)
 import qualified Data.Set as Set (toList, fromList)
+import Data.Time (getCurrentTime, diffUTCTime)
 import Data.Word (Word8)
 import System.IO.Unsafe (unsafePerformIO)
 import Text.Printf (printf)
@@ -50,8 +51,10 @@ midiState State{..} (MidiId n) (MidiFaderValue  v) = ControlState (maybe (error 
 
 processEvents :: State -> ControlCallback -> IO ()
 processEvents State{..} callback = infLoop $ do
+  startTime <- getCurrentTime
   _ <- sequence =<< map ((>>= callback) . getControl State{..} . bytes . message) . either (error "Cannot get events") id <$> readEvents stream
-  threadDelay pollRate
+  endTime <- getCurrentTime
+  threadDelay . truncate $ 1000000 * (pollRate - (diffUTCTime endTime startTime))
   return ()
 
 midiValueFromState :: ControlState -> Float
