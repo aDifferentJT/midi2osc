@@ -18,7 +18,7 @@ import OutputCore
 import Utils
 
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Maybe (MaybeT (MaybeT), runMaybeT)
+import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
 import Data.Bimap (keysR)
 import Data.List ((\\))
 import Data.Map.Strict (elems, (!))
@@ -38,12 +38,12 @@ askForFeedback _          _                = return ()
 
 instance Feedback where
   addFeedback :: State -> Control -> IO ()
-  addFeedback State{..} control = (>> return ()) . runMaybeT $ do
+  addFeedback State{..} control = runMaybeT_ $ do
     output <- MaybeT $ outputForControl State{..} <$> currentMapping <*> return control
     lift $ registerFeedback State{..} output (midiFeedbackFromFloat State{..} control)
 
   clearFeedback :: State -> Control -> IO ()
-  clearFeedback State{..} control = (>> return ()) . runMaybeT $ do
+  clearFeedback State{..} control = runMaybeT_ $ do
     output <- MaybeT $ outputForControl State{..} <$> currentMapping <*> return control
     lift $ unregisterFeedback State{..} output
 

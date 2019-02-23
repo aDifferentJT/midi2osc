@@ -8,10 +8,12 @@ module Utils
   , Factory (Value, Function)
   , runFactory
   , infLoop
+  , runMaybeT_
   ) where
 
 import Prelude hiding (filter)
 import Control.Arrow (first)
+import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
 import Data.Array (Array, listArray)
 import Data.Bool (bool)
 import Data.List (unfoldr)
@@ -47,4 +49,8 @@ runFactory (Function f) = f
 
 infLoop :: Monad m => m a -> m a
 infLoop x = x >> infLoop x
+
+runMaybeT_ :: Monad m => MaybeT m () -> m ()
+runMaybeT_ = (>> return ()) . runMaybeT
+
 

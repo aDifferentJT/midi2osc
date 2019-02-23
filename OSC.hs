@@ -16,9 +16,10 @@ import Prelude hiding (lookup)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Maybe (MaybeT (MaybeT), runMaybeT)
+import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef', writeIORef)
 import Data.Map.Strict (Map, lookup, insert, delete, empty)
+import Distribution.System (buildOS, OS (Windows))
 
 import qualified Sound.OSC as OSC (Datum (Int32, Int64, Float, Double))
 import Sound.OSC
@@ -43,8 +44,10 @@ sendOSC (OSCConnection udp _ _ _ _) msg = liftIO $ withTransport udp (sendMessag
 
 sendOSCFromServer :: MonadIO m => OSCConnection -> Message -> m ()
 sendOSCFromServer (OSCConnection _ udp a p _) m = liftIO $ do
-  AddrInfo{..}:_ <- getAddrInfo Nothing (Just a) (Just . show $ p)
-  with_udp udp (\udp' -> sendTo udp' (Packet_Message m) (addrAddress))
+  if buildOS == Windows then return ()
+  else do
+    AddrInfo{..}:_ <- getAddrInfo Nothing (Just a) (Just . show $ p)
+    with_udp udp (\udp' -> sendTo udp' (Packet_Message m) (addrAddress))
 
 sendRegisterMessages :: OSCConnection -> String -> IO ()
 sendRegisterMessages oscConn m = (>> return ()) . forkIO . infLoop $ do
@@ -72,7 +75,7 @@ askForOSCValue conn path = sendOSCFromServer conn . Message path $ []
 
 listenToOSC :: IORef (Map String (Float -> IO ())) -> IO UDP -> IO ()
 listenToOSC callbacks udp = (>> return ()) . forkIO . withTransport udp . infLoop $ do
-  recvMessages >>= sequence_ . map (\(Message path datum) -> lift . runMaybeT $ do
+  recvMessages >>= sequence_ . map (\(Message path datum) -> lift . runMaybeT_ $ do
     callback <- MaybeT $ lookup path <$> readIORef callbacks
     lift . callback . floatFromDatum $ datum
     )

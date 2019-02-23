@@ -11,7 +11,7 @@ import Utils
 import Prelude hiding (lookup)
 import Control.Concurrent (forkIO)
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Maybe (MaybeT (MaybeT), runMaybeT)
+import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
 import Data.IORef (readIORef, newIORef, writeIORef)
 import Data.Map.Strict ((!), lookup)
 import Data.Maybe (maybe)
@@ -149,7 +149,7 @@ buildPage State{..} win = do
       respondToMoved controlState = runUI win $ do
         let ControlState control _ = controlState
         selectingB <- liftIO . readIORef $ selecting
-        _ <- runMaybeT $ do
+        runMaybeT_ $ do
           case selectingB of
             SelectingControl -> lift $ do
               liftIO . writeIORef selected . SelectedControl $ control
@@ -173,59 +173,63 @@ buildPage State{..} win = do
         return ()
 
   let respondToOutputTypeChanged :: a -> IO ()
-      respondToOutputTypeChanged _ = runUI win $ do
-        oType <- outputType # get UI.value
-        case oType of
-          "" -> do
-            _ <- element outputTypeArg       # hideElement
-            _ <- element outputActionPreset  # hideElement
-            _ <- element outputActionField   # hideElement
-            _ <- element outputChannelPreset # hideElement
-            _ <- element outputChannelField  # hideElement
-            return ()
-          "clear" -> do
-            (liftIO . readIORef $ selected) >>= \case
-              SelectedControl c -> do
-                liftIO $ removeControlOutput State{..} c
-                return ()
-              SelectedChannel ch -> do
-                liftIO $ removeChannelOutput State{..} ch
-                return ()
-              SelectedAction a -> do
-                liftIO $ removeActionOutput State{..} a
-                return ()
-              SelectedNone -> return ()
-            hideAll
-          _ -> do
-            _ <- element outputTypeArg # showElement
-                                       # set UI.children []
-                                       #+ map makeUIOption (outputTypeArgs State{..} ! oType)
-                                       # set UI.selection Nothing
-            return ()
+      respondToOutputTypeChanged _ = runUI win . runMaybeT_ $ do
+        _ <- MaybeT $ outputType # get UI.selection
+        lift $ do
+          oType <- outputType # get UI.value
+          case oType of
+            "" -> do
+              _ <- element outputTypeArg       # hideElement
+              _ <- element outputActionPreset  # hideElement
+              _ <- element outputActionField   # hideElement
+              _ <- element outputChannelPreset # hideElement
+              _ <- element outputChannelField  # hideElement
+              return ()
+            "clear" -> do
+              (liftIO . readIORef $ selected) >>= \case
+                SelectedControl c -> do
+                  liftIO $ removeControlOutput State{..} c
+                  return ()
+                SelectedChannel ch -> do
+                  liftIO $ removeChannelOutput State{..} ch
+                  return ()
+                SelectedAction a -> do
+                  liftIO $ removeActionOutput State{..} a
+                  return ()
+                SelectedNone -> return ()
+              hideAll
+            _ -> do
+              _ <- element outputTypeArg # showElement
+                                         # set UI.children []
+                                         #+ map makeUIOption (outputTypeArgs State{..} ! oType)
+                                         # set UI.selection Nothing
+              return ()
 
   let respondToOutputTypeArgChanged :: a -> IO ()
-      respondToOutputTypeArgChanged _ = runUI win $ do
-        oType <- outputType # get UI.value
-        (liftIO . readIORef $ selected) >>= \case
-          SelectedControl _ -> do
-            _ <- element outputActionPreset # showElement
-                                            # set UI.children []
-                                            #+ map makeUIOption ((outputPresetsOfType ! oType) ++ (outputActionPresetsOfType ! oType))
-                                            # set UI.selection Nothing
-            return ()
-          SelectedChannel _ -> do
-            _ <- element outputChannelPreset # showElement
-                                             # set UI.children []
-                                             #+ map makeUIOption (outputChannelPresetsOfType ! oType)
-                                             # set UI.selection Nothing
-            return ()
-          SelectedAction _ -> do
-            _ <- element outputActionPreset # showElement
-                                            # set UI.children []
-                                            #+ map makeUIOption (outputActionPresetsOfType ! oType)
-                                            # set UI.selection Nothing
-            return ()
-          SelectedNone -> return ()
+      respondToOutputTypeArgChanged _ = runUI win . runMaybeT_ $ do
+        _ <- MaybeT $ outputType # get UI.selection
+        lift $ do
+          oType <- outputType # get UI.value
+          (liftIO . readIORef $ selected) >>= \case
+            SelectedControl _ -> do
+              _ <- element outputActionPreset # showElement
+                                              # set UI.children []
+                                              #+ map makeUIOption ((outputPresetsOfType ! oType) ++ (outputActionPresetsOfType ! oType))
+                                              # set UI.selection Nothing
+              return ()
+            SelectedChannel _ -> do
+              _ <- element outputChannelPreset # showElement
+                                               # set UI.children []
+                                               #+ map makeUIOption (outputChannelPresetsOfType ! oType)
+                                               # set UI.selection Nothing
+              return ()
+            SelectedAction _ -> do
+              _ <- element outputActionPreset # showElement
+                                              # set UI.children []
+                                              #+ map makeUIOption (outputActionPresetsOfType ! oType)
+                                              # set UI.selection Nothing
+              return ()
+            SelectedNone -> return ()
 
   let setControl :: Output -> UI ()
       setControl o = do
@@ -251,10 +255,11 @@ buildPage State{..} win = do
           _ -> error "Expected action to be selected"
 
   let respondToOutputActionPresetChanged :: a -> IO ()
-      respondToOutputActionPresetChanged _ = runUI win $ do
-        oActionPreset <- outputActionPreset # get UI.value
-        oTypeArg <- outputTypeArg # get UI.value
-        _ <- runMaybeT $ (
+      respondToOutputActionPresetChanged _ = runUI win . runMaybeT_ $ do
+        _ <- MaybeT $ outputActionPreset # get UI.selection
+        oActionPreset <- lift $ outputActionPreset # get UI.value
+        oTypeArg <- lift $ outputTypeArg # get UI.value
+        (
           (liftIO . readIORef $ selected) >>= \case
             SelectedControl _ ->
               flip runFactory oTypeArg <$> (MaybeT . return $ lookup oActionPreset outputPresets) >>= \case
@@ -275,10 +280,11 @@ buildPage State{..} win = do
         return ()
 
   let respondToOutputActionFieldChanged :: a -> IO ()
-      respondToOutputActionFieldChanged _ = runUI win $ do
-        oActionPreset <- outputActionPreset # get UI.value
-        oTypeArg <- outputTypeArg # get UI.value
-        _ <- runMaybeT $ (
+      respondToOutputActionFieldChanged _ = runUI win . runMaybeT_ $ do
+        _ <- MaybeT $ outputActionPreset # get UI.selection
+        oActionPreset <- lift $ outputActionPreset # get UI.value
+        oTypeArg <- lift $ outputTypeArg # get UI.value
+        (
           (liftIO . readIORef $ selected) >>= \case
             SelectedControl _ ->
               flip runFactory oTypeArg <$> (MaybeT . return $ lookup oActionPreset outputPresets) >>= \case
@@ -297,7 +303,7 @@ buildPage State{..} win = do
         (liftIO . readIORef $ selected) >>= \case
           SelectedChannel a -> do
             liftIO $ updateChannelOutput State{..} a o
-          SelectedControl c -> (>> return ()) . runMaybeT $ do
+          SelectedControl c -> runMaybeT_ $ do
             oActionPreset <- lift $ outputActionPreset # get UI.value
             oA <- case outputActionPresets ! oActionPreset of
               Value v    -> return v
@@ -308,24 +314,29 @@ buildPage State{..} win = do
         hideAll
 
   let respondToOutputChannelPresetChanged :: a -> IO ()
-      respondToOutputChannelPresetChanged _ = runUI win $ do
-        oChannelPreset <- outputChannelPreset # get UI.value
-        oTypeArg <- outputTypeArg # get UI.value
-        case runFactory (outputChannelPresets ! oChannelPreset) oTypeArg of
-          Value v    -> setChannel v
-          Function _ -> do
-            _ <- element outputChannelField # showElement
-                                            # set UI.value ""
-            return ()
+      respondToOutputChannelPresetChanged _ = runUI win . runMaybeT_ $ do
+        _ <- MaybeT $ outputChannelPreset # get UI.selection
+        lift $ do
+          oChannelPreset <- outputChannelPreset # get UI.value
+          oTypeArg <- outputTypeArg # get UI.value
+          case runFactory (outputChannelPresets ! oChannelPreset) oTypeArg of
+            Value v    -> setChannel v
+            Function _ -> do
+              _ <- element outputChannelField # showElement
+                                              # set UI.value ""
+              return ()
 
   let respondToOutputChannelFieldChanged :: a -> IO ()
-      respondToOutputChannelFieldChanged _ = runUI win $ do
-        oChannelPreset <- outputChannelPreset # get UI.value
-        oChannelArg    <- outputChannelField  # get UI.value
-        oTypeArg <- outputTypeArg # get UI.value
-        case runFactory (outputChannelPresets ! oChannelPreset) oTypeArg of
-          Value v    -> setChannel v
-          Function f -> setChannel . f $ oChannelArg
+      respondToOutputChannelFieldChanged _ = runUI win . runMaybeT_ $ do
+        _ <- MaybeT $ outputChannelPreset # get UI.selection
+        _ <- MaybeT $ outputTypeArg # get UI.selection
+        lift $ do
+          oChannelPreset <- outputChannelPreset # get UI.value
+          oChannelArg    <- outputChannelField  # get UI.value
+          oTypeArg <- outputTypeArg # get UI.value
+          case runFactory (outputChannelPresets ! oChannelPreset) oTypeArg of
+            Value v    -> setChannel v
+            Function f -> setChannel . f $ oChannelArg
 
   _ <- liftIO . register eMoved $ respondToMoved
   _ <- liftIO . register (UI.selectionChange outputType) $ respondToOutputTypeChanged

@@ -7,10 +7,11 @@ import GUI
 import Midi
 import MidiCore
 import Output
+import Utils
 
 import Prelude hiding (lookup)
 import Control.Concurrent (threadDelay)
-import Control.Monad.Trans.Maybe (MaybeT (MaybeT), runMaybeT)
+import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
 import Data.Set (member)
 import System.Environment (getArgs)
 
@@ -36,7 +37,7 @@ eventCallback State{..} (ControlState c (MidiButtonValue v))
       addAllFeedbacks State{..}
     else return ()
 eventCallback State{..} control = do
-  _ <- runMaybeT $ (respondToControl State{..} control >>= performOutput State{..})
+  runMaybeT_ $ (respondToControl State{..} control >>= performOutput State{..})
   hMoved control
   midiFeedback State{..} control
   return ()

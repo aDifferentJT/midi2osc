@@ -15,7 +15,8 @@ import Data.Serialize (Serialize)
 import GHC.Generics (Generic)
 import Text.ParserCombinators.Parsec
 
-data Stmt = OSCAddress (String, String, Int, Int, [String])
+data Stmt = Comment String
+          | OSCAddress (String, String, Int, Int, [String])
           | Profile FilePath
           | MidiDevice String
           | Bank FilePath
@@ -30,6 +31,9 @@ makeStmtParser t argParse f = do
   _ <- string t
   sep
   f <$> argParse
+
+comment :: Parser Stmt
+comment = string "//" >> Comment <$> many1 (noneOf ['\n'])
 
 oscAddressStmt :: Parser Stmt
 oscAddressStmt = makeStmtParser
@@ -97,7 +101,8 @@ actionGroupStmt = makeStmtParser
   (uncurry ActionGroup)
 
 statement :: Parser Stmt
-statement = try oscAddressStmt
+statement = try comment
+        <|> try oscAddressStmt
         <|> try profileStmt
         <|> try midiDeviceStmt
         <|> try bankStmt
@@ -144,6 +149,7 @@ data Conf = Conf
   deriving Show
 
 processStmt :: Stmt -> Conf -> Conf
+processStmt (Comment _)                   conf = conf
 processStmt (OSCAddress (l,a,pO,pF,regs)) conf = conf { confOSCAddresses = (Connection l, (a,pO,pF,regs)) : confOSCAddresses conf }
 processStmt (Profile fn)                  conf = conf { confProfile = fn }
 processStmt (MidiDevice d)                conf = conf { confMidiDevice = d }
