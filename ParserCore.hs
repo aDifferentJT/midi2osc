@@ -15,6 +15,7 @@ module ParserCore
 
 import MidiCore
 
+import Control.Monad (void)
 import Data.Char (digitToInt)
 import Text.ParserCombinators.Parsec
 
@@ -57,7 +58,7 @@ number base baseDigit = do
   seq n (return n)
 
 sep :: Parser ()
-sep = char ':' >> return ()
+sep = void . char $ ':'
 
 midiButton :: Parser MidiControl
 midiButton = do
@@ -77,11 +78,10 @@ parseString p str =
   case parse p "" str of
     Left e  -> error $ show e
     Right r -> r
- 
+
 parseFile :: Parser a -> String -> IO a
 parseFile p file =
   do program  <- readFile file
      case parse p "" program of
        Left e  -> print e >> fail "parse error"
        Right r -> return r
-

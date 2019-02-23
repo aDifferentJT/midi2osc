@@ -13,6 +13,7 @@ module Utils
 
 import Prelude hiding (filter)
 import Control.Arrow (first)
+import Control.Monad (void)
 import Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
 import Data.Array (Array, listArray)
 import Data.Bool (bool)
@@ -51,6 +52,4 @@ infLoop :: Monad m => m a -> m a
 infLoop x = x >> infLoop x
 
 runMaybeT_ :: Monad m => MaybeT m () -> m ()
-runMaybeT_ = (>> return ()) . runMaybeT
-
-
+runMaybeT_ = void . runMaybeT

@@ -10,6 +10,7 @@ import Utils
 
 import Prelude hiding (lookup)
 import Control.Concurrent (forkIO)
+import Control.Monad (void)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
 import Data.IORef (readIORef, newIORef, writeIORef)
@@ -351,9 +352,8 @@ buildPage State{..} win = do
   return ()
 
 runGUI :: State -> IO ()
-runGUI = (>> return ()) . forkIO . startGUI defaultConfig
+runGUI = void . forkIO . startGUI defaultConfig
     { jsPort   = Just 8023
     , jsCustomHTML = Just "custom.html"
     , jsStatic = Just "static"
     } . buildPage
-

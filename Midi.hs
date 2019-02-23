@@ -25,6 +25,7 @@ import Utils
 import Prelude hiding (lookup)
 import Control.Concurrent.Lock (Lock, acquire, release)
 import qualified Control.Concurrent.Lock as Lock (new)
+import Control.Monad (void)
 import Data.Array (bounds)
 import Data.Bool (bool)
 import Data.Bimap (lookup, lookupR)
@@ -109,7 +110,7 @@ setLed _     _        _                  = do
   return (Right NoError'NoData)
 
 setLeds :: State -> MidiValue -> Set Control -> IO ()
-setLeds state v = (>> return ()) . sequence . map (\c -> setLed state c v) . Set.toList
+setLeds state v = void . sequence . map (\c -> setLed state c v) . Set.toList
 
 allLeds :: State -> Set Control
 allLeds State{..} = Set.fromList . mapMaybe f . Bimap.toList $ profile
@@ -169,4 +170,3 @@ bankRight State{..} = do
     return ()
   else return ()
   updateBankLeds State{..}
-

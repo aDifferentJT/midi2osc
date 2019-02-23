@@ -11,6 +11,7 @@ import Utils
 
 import Prelude hiding (lookup)
 import Control.Concurrent (threadDelay)
+import Control.Monad (void)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
 import Data.Set (member)
 import System.Environment (getArgs)
@@ -54,10 +55,9 @@ main = do
   threadDelay 500000
   setLeds state (MidiButtonValue False) (allLeds state)
 
-  _ <- register (eBankSwitch state) $ \_ -> refreshFeedbacks state ((>> return ()) . flip (setLed state) (MidiButtonValue False))
+  _ <- register (eBankSwitch state) $ \_ -> refreshFeedbacks state (void . flip (setLed state) (MidiButtonValue False))
   hBankSwitch state ()
 
   updateBankLeds state
 
   processEvents state (eventCallback state)
-
