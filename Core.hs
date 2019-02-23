@@ -28,6 +28,7 @@ module Core
   , streamFb
   , oscConnections
   , filenames
+  , pollRate
   , eMoved
   , hMoved
   , eBankSwitch
@@ -181,6 +182,7 @@ data State = State
   , streamFb :: PMStream
   , oscConnections :: Map Connection OSCConnection
   , filenames :: Array Int String
+  , pollRate :: Int
   , eMoved :: Event ControlState
   , hMoved :: Handler ControlState
   , eBankSwitch :: Event ()
@@ -196,18 +198,19 @@ data State = State
 
 stateFromConf :: FilePath -> IO State
 stateFromConf confFn = do
-  conf <- openConf confFn
-  profile <- openProfile . confProfile $ conf
-  (stream, streamFb) <- openDevice . confMidiDevice $ conf
-  oscConnections <- Map.fromList <$> (sequence . map (\(c,a) -> (c,) <$> openOSCConnection a) . confOSCAddresses $ conf)
-  let filenames = mkArray . confBanks $ conf
+  Conf{..} <- openConf confFn
+  profile <- openProfile confProfile
+  (stream, streamFb) <- openDevice confMidiDevice
+  oscConnections <- Map.fromList <$> (sequence . map (\(c,a) -> (c,) <$> openOSCConnection a) $ confOSCAddresses)
+  let filenames = mkArray confBanks
+  let pollRate = confPollRate
   (eMoved, hMoved) <- newEvent
   (eBankSwitch, hBankSwitch) <- newEvent
-  let bankLefts  = Set.fromList . confBankLefts  $ conf
-  let bankRights = Set.fromList . confBankRights $ conf
-  let channelGroups = Map.fromList . concat . map (\(ch,cs) -> map (,ch) cs) . confChannelGroups $ conf
-  let actionGroups  = Map.fromList . concat . map (\(ch,cs) -> map (,ch) cs) . confActionGroups  $ conf
-  mappings <- newIORef . mkArray =<< (sequence . map open . confBanks $ conf)
+  let bankLefts  = Set.fromList confBankLefts
+  let bankRights = Set.fromList confBankRights
+  let channelGroups = Map.fromList . concat . map (\(ch,cs) -> map (,ch) cs) $ confChannelGroups
+  let actionGroups  = Map.fromList . concat . map (\(ch,cs) -> map (,ch) cs) $ confActionGroups
+  mappings <- newIORef . mkArray =<< (sequence . map open $ confBanks)
   currentMappingIndex <- newIORef 0
   let currentMapping = (!) <$> readIORef mappings <*> readIORef currentMappingIndex
   return State{..}

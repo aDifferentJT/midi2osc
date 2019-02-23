@@ -16,9 +16,10 @@ import GHC.Generics (Generic)
 import Text.ParserCombinators.Parsec
 
 data Stmt = Comment String
-          | OSCAddress (String, String, Int, Int, [String])
+          | OSCAddress String String Int Int [String]
           | Profile FilePath
           | MidiDevice String
+          | PollRate Int
           | Bank FilePath
           | BankLeft String
           | BankRight String
@@ -26,11 +27,11 @@ data Stmt = Comment String
           | ActionGroup String [String]
   deriving Show
 
-makeStmtParser :: String -> Parser a -> (a -> Stmt) -> Parser Stmt
-makeStmtParser t argParse f = do
+makeStmtParser :: String -> Parser Stmt -> Parser Stmt
+makeStmtParser t argParse = do
   _ <- string t
   sep
-  f <$> argParse
+  argParse
 
 comment :: Parser Stmt
 comment = string "//" >> Comment <$> many1 (noneOf ['\n'])
@@ -47,39 +48,38 @@ oscAddressStmt = makeStmtParser
     sep
     pF <- fromInteger <$> natural
     regs <- try (sep >> sepBy1 (many1 (noneOf ['\n'])) (char ',')) <|> return []
-    return (l, a, pO, pF, regs)
+    return $ OSCAddress l a pO pF regs
     )
-  OSCAddress
 
 profileStmt :: Parser Stmt
 profileStmt = makeStmtParser
   "p"
-  (many1 (noneOf ['\n']))
-  Profile
+  (Profile <$> many1 (noneOf ['\n']))
 
 midiDeviceStmt :: Parser Stmt
 midiDeviceStmt = makeStmtParser
   "d"
-  (many1 (noneOf ['\n']))
-  MidiDevice
+  (MidiDevice <$> many1 (noneOf ['\n']))
+
+pollRateStmt :: Parser Stmt
+pollRateStmt = makeStmtParser
+  "pr"
+  (PollRate . fromInteger <$> natural)
 
 bankStmt :: Parser Stmt
 bankStmt = makeStmtParser
   "b"
-  (many1 (noneOf ['\n']))
-  Bank
+  (Bank <$> many1 (noneOf ['\n']))
 
 bankLeftStmt :: Parser Stmt
 bankLeftStmt = makeStmtParser
   "bl"
-  (many1 alphaNum)
-  BankLeft
+  (BankLeft <$> many1 alphaNum)
 
 bankRightStmt :: Parser Stmt
 bankRightStmt = makeStmtParser
   "br"
-  (many1 alphaNum)
-  BankRight
+  (BankRight <$> many1 alphaNum)
 
 groupArg :: Parser (String, [String])
 groupArg = do
@@ -91,20 +91,19 @@ groupArg = do
 channelGroupStmt :: Parser Stmt
 channelGroupStmt = makeStmtParser
   "cg"
-  groupArg
-  (uncurry ChannelGroup)
+  (uncurry ChannelGroup <$> groupArg)
 
 actionGroupStmt :: Parser Stmt
 actionGroupStmt = makeStmtParser
   "ag"
-  groupArg
-  (uncurry ActionGroup)
+  (uncurry ActionGroup <$> groupArg)
 
 statement :: Parser Stmt
 statement = try comment
         <|> try oscAddressStmt
         <|> try profileStmt
         <|> try midiDeviceStmt
+        <|> try pollRateStmt
         <|> try bankStmt
         <|> try bankLeftStmt
         <|> try bankRightStmt
@@ -140,6 +139,7 @@ data Conf = Conf
   { confOSCAddresses :: [(Connection, (String, Int, Int, [String]))]
   , confProfile :: FilePath
   , confMidiDevice :: String
+  , confPollRate :: Int
   , confBanks :: [FilePath]
   , confBankLefts :: [Control]
   , confBankRights :: [Control]
@@ -149,18 +149,19 @@ data Conf = Conf
   deriving Show
 
 processStmt :: Stmt -> Conf -> Conf
-processStmt (Comment _)                   conf = conf
-processStmt (OSCAddress (l,a,pO,pF,regs)) conf = conf { confOSCAddresses = (Connection l, (a,pO,pF,regs)) : confOSCAddresses conf }
-processStmt (Profile fn)                  conf = conf { confProfile = fn }
-processStmt (MidiDevice d)                conf = conf { confMidiDevice = d }
-processStmt (Bank fn)                     conf = conf { confBanks = fn : confBanks conf }
-processStmt (BankLeft  x)                 conf = conf { confBankLefts  = Control x : confBankLefts  conf }
-processStmt (BankRight x)                 conf = conf { confBankRights = Control x : confBankRights conf }
-processStmt (ChannelGroup n cs)           conf = conf { confChannelGroups = (Channel n, map Control cs) : confChannelGroups conf }
-processStmt (ActionGroup  n cs)           conf = conf { confActionGroups  = (Action  n, map Control cs) : confActionGroups  conf }
+processStmt (Comment _)                 conf = conf
+processStmt (OSCAddress l a pO pF regs) conf = conf { confOSCAddresses = (Connection l, (a,pO,pF,regs)) : confOSCAddresses conf }
+processStmt (Profile fn)                conf = conf { confProfile = fn }
+processStmt (MidiDevice d)              conf = conf { confMidiDevice = d }
+processStmt (PollRate r)                conf = conf { confPollRate = r }
+processStmt (Bank fn)                   conf = conf { confBanks = fn : confBanks conf }
+processStmt (BankLeft  x)               conf = conf { confBankLefts  = Control x : confBankLefts  conf }
+processStmt (BankRight x)               conf = conf { confBankRights = Control x : confBankRights conf }
+processStmt (ChannelGroup n cs)         conf = conf { confChannelGroups = (Channel n, map Control cs) : confChannelGroups conf }
+processStmt (ActionGroup  n cs)         conf = conf { confActionGroups  = (Action  n, map Control cs) : confActionGroups  conf }
 
 emptyConf :: Conf
-emptyConf = Conf [] "" "" [] [] [] [] []
+emptyConf = Conf [] "" "" 0 [] [] [] [] []
 
 confParser :: Parser Conf
 confParser = foldr processStmt emptyConf <$> stmtsParser

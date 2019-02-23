@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, RecordWildCards #-}
+{-# LANGUAGE LambdaCase, RecordWildCards, OverloadedStrings #-}
 
 module GUI (runGUI) where
 
@@ -354,6 +354,7 @@ buildPage State{..} win = do
 runGUI :: State -> IO ()
 runGUI = void . forkIO . startGUI defaultConfig
     { jsPort   = Just 8023
+    , jsAddr   = Just "0.0.0.0"
     , jsCustomHTML = Just "custom.html"
     , jsStatic = Just "static"
     } . buildPage

@@ -23,6 +23,7 @@ import MidiCore
 import Utils
 
 import Prelude hiding (lookup)
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Lock (Lock, acquire, release)
 import qualified Control.Concurrent.Lock as Lock (new)
 import Control.Monad (void)
@@ -50,6 +51,7 @@ midiState State{..} (MidiId n) (MidiFaderValue  v) = ControlState (maybe (error 
 processEvents :: State -> ControlCallback -> IO ()
 processEvents State{..} callback = infLoop $ do
   _ <- sequence =<< map ((>>= callback) . getControl State{..} . bytes . message) . either (error "Cannot get events") id <$> readEvents stream
+  threadDelay pollRate
   return ()
 
 midiValueFromState :: ControlState -> Float

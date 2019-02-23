@@ -14,6 +14,7 @@ module MidiCore
 import Utils
 
 import Control.Monad ((<=<), filterM)
+import Data.List (isPrefixOf)
 import Data.Serialize (Serialize)
 import Data.Word (Word8)
 import GHC.Generics (Generic)
@@ -62,7 +63,7 @@ instance Show ControlState where
 openDevice :: String -> IO (PMStream, PMStream)
 openDevice d = do
   _ <- either (error "Cannot initialize Midi") id <$> initialize
-  devices <- filterM (return . (== d) . name <=< getDeviceInfo) . upTo =<< countDevices
+  devices <- filterM (return . (isPrefixOf d) . name <=< getDeviceInfo) . upTo =<< countDevices
   if null devices then error (printf "No device named %s" d) else return ()
   inDevice <- filterM (return . input <=< getDeviceInfo) devices
   outDevice <- filterM (return . output <=< getDeviceInfo) devices
