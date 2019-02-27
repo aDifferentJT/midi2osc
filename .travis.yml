@@ -1,0 +1,14 @@
+os: linux
+  - osx
+  - windows
+
+language: haskell
+ghc:
+  8.4
+
+matrix:
+  allow_failures:
+    - os: windows
+
+install: true
+script: make
