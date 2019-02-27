@@ -1,5 +1,9 @@
 Main: *.hs
-	ghc -threaded -Wall Main
+	ghc -threaded -Wall -hide-package "base" -package "base-noprelude" -package "base (Prelude as BasePrelude)" Main
+
+.PHONY: i-%
+i-%: *.hs
+	ghci -threaded -Wall -hide-package "base" -package "base-noprelude" -package "base (Prelude as BasePrelude)" $*
 
 all: clean Main
 

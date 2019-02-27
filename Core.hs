@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, DefaultSignatures, TupleSections, RecordWildCards, MultiParamTypeClasses #-}
+{-# LANGUAGE DeriveGeneric, TupleSections, RecordWildCards, MultiParamTypeClasses #-}
 
 module Core
   ( Control
@@ -51,23 +51,20 @@ module Core
 import MidiCore
 import OSC
 import OutputCore
-import Utils
 
 import ConfParser
 import ProfileParser
 
-import Prelude hiding (readFile, writeFile, lookup)
+import Prelude hiding (readFile, writeFile)
 import Control.Applicative ((<|>))
 import Control.Exception (throwIO, catch, IOException)
-import Data.Array (Array, (!), (//))
+import Data.Array (Array, (//))
 import Data.ByteString (readFile, writeFile)
 import Data.IORef (IORef, readIORef, newIORef, modifyIORef')
-import Data.Map.Strict (Map, empty, keys, lookup, insert, delete)
-import qualified Data.Map.Strict as Map (fromList)
+import Data.Map.Strict (Map, empty, keys, insert, delete)
 import Data.Maybe (mapMaybe)
 import Data.Serialize (Serialize, encode, decode)
 import Data.Set (Set)
-import qualified Data.Set as Set (fromList)
 import Data.Time.Clock (NominalDiffTime)
 import GHC.Generics (Generic)
 
@@ -143,7 +140,7 @@ removeOutput f fb State{..} x = do
   fb State{..} x
 
 removeControlOutput :: Feedback => State -> Control -> IO ()
-removeControlOutput = removeOutput removeControlFromMapping (clearFeedback)
+removeControlOutput = removeOutput removeControlFromMapping clearFeedback
 
 removeChannelOutput :: Feedback => State -> Channel -> IO ()
 removeChannelOutput = removeOutput removeChannelFromMapping clearChannelFeedbacks
@@ -166,9 +163,7 @@ outputForControl State{..} (Mapping cs chs as) c = lookup c cs
                                                  lookup c channelGroups >>= (\ch ->
                                                    lookup ch chs >>= (\oCh ->
                                                      lookup c actionGroups >>= (\a ->
-                                                       lookup a as >>= (\oA ->
-                                                         outputCombine oCh oA
-                                                       )
+                                                       lookup a as >>= outputCombine oCh
                                                      )
                                                    )
                                                  )
@@ -202,22 +197,22 @@ stateFromConf confFn = do
   Conf{..} <- openConf confFn
   profile <- openProfile confProfile
   (stream, streamFb) <- openDevice confMidiDevice
-  oscConnections <- Map.fromList <$> (sequence . map (\(c,a) -> (c,) <$> openOSCConnection a) $ confOSCAddresses)
+  oscConnections <- fromList <$> mapM (\(c,a) -> (c,) <$> openOSCConnection a) confOSCAddresses
   let filenames = mkArray confBanks
-  let pollRate = 1 / (fromIntegral confPollRate)
+  let pollRate = 1 / fromIntegral confPollRate
   (eMoved, hMoved) <- newEvent
   (eBankSwitch, hBankSwitch) <- newEvent
-  let bankLefts  = Set.fromList confBankLefts
-  let bankRights = Set.fromList confBankRights
-  let channelGroups = Map.fromList . concat . map (\(ch,cs) -> map (,ch) cs) $ confChannelGroups
-  let actionGroups  = Map.fromList . concat . map (\(ch,cs) -> map (,ch) cs) $ confActionGroups
-  mappings <- newIORef . mkArray =<< (sequence . map open $ confBanks)
+  let bankLefts  = fromList confBankLefts
+  let bankRights = fromList confBankRights
+  let channelGroups = fromList . concatMap (\(ch,cs) -> map (,ch) cs) $ confChannelGroups
+  let actionGroups  = fromList . concatMap (\(ch,cs) -> map (,ch) cs) $ confActionGroups
+  mappings <- newIORef . mkArray =<< mapM open confBanks
   currentMappingIndex <- newIORef 0
   let currentMapping = (!) <$> readIORef mappings <*> readIORef currentMappingIndex
   return State{..}
 
 save :: String -> Mapping -> IO ()
-save filename mapping = writeFile filename . encode $ mapping
+save filename = writeFile filename . encode
 
 open :: String -> IO Mapping
 open filename = catch (either (const . throwIO . userError $ "Invalid file") return . decode =<< readFile filename) (const . return $ emptyMapping :: IOException -> IO Mapping)

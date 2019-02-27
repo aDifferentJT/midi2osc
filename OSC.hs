@@ -10,16 +10,13 @@ module OSC
   , openOSCConnection
   ) where
 
-import Utils
-
-import Prelude hiding (lookup)
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Monad (void)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef', writeIORef)
-import Data.Map.Strict (Map, lookup, insert, delete, empty)
+import Data.Map.Strict (Map, insert, delete, empty)
 import Distribution.System (buildOS, OS(Linux, OSX, Windows))
 
 import qualified Sound.OSC as OSC (Datum (Int32, Int64, Float, Double))
@@ -47,7 +44,7 @@ sendOSC (OSCConnection udp _ _ _ _) msg = liftIO $ withTransport udp (sendMessag
 sendOSCFromServer :: MonadIO m => OSCConnection -> Message -> m ()
 sendOSCFromServer (OSCConnection _ udp a p _) m = liftIO $ do
   AddrInfo{..}:_ <- getAddrInfo Nothing (Just a) (Just . show $ p)
-  with_udp udp (\udp' -> sendTo udp' (Packet_Message m) (addrAddress))
+  with_udp udp $ \udp' -> sendTo udp' (Packet_Message m) addrAddress
 
 sendRegisterMessages :: OSCConnection -> String -> IO ()
 sendRegisterMessages oscConn m = void . forkIO . infLoop $ do
@@ -61,11 +58,13 @@ openOSCConnection (a, pO, pF, regs) = do
   let udpFI = udp_server pF
   let udpFO = case buildOS of
         Windows -> udpServer "0.0.0.0" pF
+        Linux   -> udpFI
+        OSX     -> udpFI
         _       -> udpFI
   let oscConn = OSCConnection udpO udpFO a pO callbacks
-  sequence_ (map (sendRegisterMessages oscConn) regs)
+  mapM_ (sendRegisterMessages oscConn) regs
   listenToOSC callbacks udpFI
-  return $ oscConn
+  return oscConn
 
 --oscUDP = openUDP "192.168.1.1" 10024
 --oscUDP = openUDP "169.254.147.198" 10024
@@ -77,8 +76,8 @@ askForOSCValue :: MonadIO m => OSCConnection -> String -> m ()
 askForOSCValue conn path = sendOSCFromServer conn . Message path $ []
 
 listenToOSC :: IORef (Map String (Float -> IO ())) -> IO UDP -> IO ()
-listenToOSC callbacks udp = void . forkIO . withTransport udp . infLoop $ do
-  recvMessages >>= sequence_ . map (\(Message path datum) -> lift . runMaybeT_ $ do
+listenToOSC callbacks udp = void . forkIO . withTransport udp . infLoop $
+  recvMessages >>= mapM_ (\(Message path datum) -> lift . runMaybeT_ $ do
     callback <- MaybeT $ lookup path <$> readIORef callbacks
     lift . callback . floatFromDatum $ datum
     )

@@ -20,10 +20,7 @@ import Data.Char (digitToInt)
 import Text.ParserCombinators.Parsec
 
 integer :: Parser Integer
-integer = do
-  f <- sign
-  n <- natural
-  return (f n)
+integer = sign <*> natural
 
 sign :: Num a => Parser (a -> a)
 sign = (char '-' >> return negate)
@@ -74,10 +71,11 @@ midiControl :: Parser MidiControl
 midiControl = try midiButton <|> try midiFader
 
 parseString :: Parser a -> String -> a
-parseString p str =
+parseString p' str =
   case parse p "" str of
     Left e  -> error $ show e
     Right r -> r
+  where p = p' >>= (eof >>) . return
 
 parseFile :: Parser a -> String -> IO a
 parseFile p file =

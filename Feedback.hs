@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections, RecordWildCards, MultiParamTypeClasses, InstanceSigs #-}
+{-# LANGUAGE RecordWildCards, MultiParamTypeClasses, InstanceSigs #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Feedback
@@ -15,13 +15,12 @@ import Core
 import Midi
 import OSC
 import OutputCore
-import Utils
 
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
 import Data.Bimap (keysR)
 import Data.List ((\\))
-import Data.Map.Strict (elems, (!))
+import Data.Map.Strict (elems)
 import Data.Maybe (fromJust)
 
 registerFeedback :: State -> Output -> (Float -> IO ()) -> IO ()
@@ -48,26 +47,25 @@ instance Feedback where
     lift $ unregisterFeedback State{..} output
 
   clearAllFeedbacks :: State -> IO ()
-  clearAllFeedbacks State{..} = do
-    sequence_ . map unregisterAllCallbacks . elems $ oscConnections
+  clearAllFeedbacks State{..} = mapM_ unregisterAllCallbacks . elems $ oscConnections
 
   addAllFeedbacks :: State -> IO ()
   addAllFeedbacks State{..} = do
     clearAllFeedbacks State{..}
     currentMapping
-      >>= (\m -> sequence_ . map (\c -> registerFeedback State{..} (fromJust . outputForControl State{..} m $ c) . midiFeedbackFromFloat State{..} $ c) . controlsInMapping State{..} $ m)
+      >>= (\m -> mapM_ (\c -> registerFeedback State{..} (fromJust . outputForControl State{..} m $ c) . midiFeedbackFromFloat State{..} $ c) . controlsInMapping State{..} $ m)
 
   addChannelFeedbacks :: State -> Channel -> IO ()
-  addChannelFeedbacks state = sequence_ . map (addFeedback state) . controlsForChannel state
+  addChannelFeedbacks state = mapM_ (addFeedback state) . controlsForChannel state
 
   addActionFeedbacks :: State -> Action -> IO ()
-  addActionFeedbacks state = sequence_ . map (addFeedback state) . controlsForAction state
+  addActionFeedbacks state = mapM_ (addFeedback state) . controlsForAction state
 
   clearChannelFeedbacks :: State -> Channel -> IO ()
-  clearChannelFeedbacks state = sequence_ . map (clearFeedback state) . controlsForChannel state
+  clearChannelFeedbacks state = mapM_ (clearFeedback state) . controlsForChannel state
 
   clearActionFeedbacks :: State -> Action -> IO ()
-  clearActionFeedbacks state = sequence_ . map (clearFeedback state) . controlsForAction state
+  clearActionFeedbacks state = mapM_ (clearFeedback state) . controlsForAction state
 
   refreshFeedbacks :: State -> (Control -> IO ()) -> IO ()
   refreshFeedbacks State{..} f = do
@@ -75,6 +73,6 @@ instance Feedback where
     let allControls = keysR profile
     let activeControls = controlsInMapping State{..} mapping
     let inactiveControls = allControls \\ activeControls
-    sequence_ . map f $ inactiveControls
-    sequence_ . map (askForFeedback State{..} . fromJust . outputForControl State{..} mapping) $ activeControls
+    mapM_ f inactiveControls
+    mapM_ (askForFeedback State{..} . fromJust . outputForControl State{..} mapping) activeControls
 

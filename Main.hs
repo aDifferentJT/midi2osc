@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, DefaultSignatures, TupleSections, RecordWildCards #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Main (main) where
 
@@ -7,11 +7,9 @@ import GUI
 import Midi
 import MidiCore
 import Output
-import Utils
 
-import Prelude hiding (lookup)
 import Control.Concurrent (threadDelay)
-import Control.Monad (void)
+import Control.Monad (void, when)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
 import Data.Set (member)
 import System.Environment (getArgs)
@@ -28,17 +26,15 @@ respondToControl State{..} controlState = do
 eventCallback :: State -> ControlState -> IO ()
 eventCallback State{..} (ControlState c (MidiButtonValue v))
   | member c bankLefts =
-    if v then do
+    when v $ do
       bankLeft State{..}
       addAllFeedbacks State{..}
-    else return ()
   | member c bankRights =
-    if v then do
+    when v $ do
       bankRight State{..}
       addAllFeedbacks State{..}
-    else return ()
 eventCallback State{..} control = do
-  runMaybeT_ $ (respondToControl State{..} control >>= performOutput State{..})
+  runMaybeT_ $ respondToControl State{..} control >>= performOutput State{..}
   hMoved control
   midiFeedback State{..} control
   return ()

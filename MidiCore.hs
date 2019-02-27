@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, DefaultSignatures #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module MidiCore
   ( MidiControl (MidiButton, MidiFader, MidiUnknown)
@@ -11,14 +11,11 @@ module MidiCore
   , openDevice
   ) where
 
-import Utils
-
-import Control.Monad ((<=<), filterM)
+import Control.Monad ((<=<), when, filterM)
 import Data.List (isPrefixOf)
 import Data.Serialize (Serialize)
 import Data.Word (Word8)
 import GHC.Generics (Generic)
-import Text.Printf (printf)
 
 import Sound.PortMidi
 
@@ -31,7 +28,7 @@ data MidiValue = MidiButtonValue Bool | MidiFaderValue Word8
 instance Serialize MidiValue
 instance Show MidiValue where
   show (MidiButtonValue v) = show v
-  show (MidiFaderValue  v) = printf "%03d" v
+  show (MidiFaderValue  v) = padLeft 3 '0' (show v)
 
 buttonValueMap :: (Bool -> Bool) -> MidiValue -> MidiValue
 buttonValueMap f (MidiButtonValue v) = MidiButtonValue (f v)
@@ -46,9 +43,9 @@ data MidiControl = MidiButton MidiId | MidiFader MidiId | MidiUnknown
 instance Serialize MidiControl
 
 instance Show MidiControl where
-  show (MidiButton (MidiId n)) = printf "Button: %03d" n
-  show (MidiFader  (MidiId n)) = printf "Fader:  %03d" n
-  show  MidiUnknown                  = "Unknown"
+  show (MidiButton (MidiId n)) = "Button: " ++ padLeft 3 '0' (show n)
+  show (MidiFader  (MidiId n)) = "Fader:  " ++ padLeft 3 '0' (show n)
+  show  MidiUnknown            = "Unknown"
 
 newtype Control = Control String
   deriving (Eq, Ord, Generic)
@@ -58,16 +55,16 @@ instance Show Control where
 
 data ControlState = ControlState Control MidiValue
 instance Show ControlState where
-  show (ControlState c v) = printf "%s: %s" (show c) (show v)
+  show (ControlState c v) = show c ++ ": " ++ show v
 
 openDevice :: String -> IO (PMStream, PMStream)
 openDevice d = do
   _ <- either (error "Cannot initialize Midi") id <$> initialize
-  devices <- filterM (return . (isPrefixOf d) . name <=< getDeviceInfo) . upTo =<< countDevices
-  if null devices then error (printf "No device named %s" d) else return ()
+  devices <- filterM (return . isPrefixOf d . name <=< getDeviceInfo) . upTo =<< countDevices
+  when (null devices) $ error ("No device named " ++ d)
   inDevice <- filterM (return . input <=< getDeviceInfo) devices
   outDevice <- filterM (return . output <=< getDeviceInfo) devices
   inStream <- either (error ("Cannot open input device " ++ show inDevice)) id <$> (openInput . head $ inDevice)
-  outStream <- either (error ("Cannot open output device " ++ show outDevice)) id <$> ((flip openOutput 0) . head $ outDevice)
+  outStream <- either (error ("Cannot open output device " ++ show outDevice)) id <$> (flip openOutput 0 . head $ outDevice)
   return (inStream, outStream)
 

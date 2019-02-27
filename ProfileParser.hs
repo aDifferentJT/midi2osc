@@ -7,7 +7,7 @@ module ProfileParser
 import MidiCore
 import ParserCore
 
-import Data.Bimap
+import Data.Bimap hiding (fromList)
 import Text.ParserCombinators.Parsec
 
 type Profile = Bimap MidiControl Control

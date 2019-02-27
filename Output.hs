@@ -17,10 +17,9 @@ import Core
 import Feedback ()
 import OSC
 import OutputCore
-import Utils
 
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Data.Map.Strict (Map, fromList, (!), keys)
+import Data.Map.Strict (Map, keys)
 
 outputTypes :: [(String, String)]
 outputTypes = [("OSC", "OSC")]
@@ -56,8 +55,8 @@ outputChannelPresetsOfType = fromList
 outputChannelPresets :: Map String (Factory String (Factory String OutputChannel))
 outputChannelPresets = fromList
   [ ("OSCinput", Function (\c -> Function (OSCInput (Connection c) . (read :: String -> Int))))
-  , ("OSCaux", Function (\c -> Value . OSCAux . Connection $ c))
-  , ("OSClr",  Function (\c -> Value . OSCLR  . Connection $ c))
+  , ("OSCaux", Function $ Value . OSCAux . Connection)
+  , ("OSClr",  Function $ Value . OSCLR  . Connection)
   ]
 
 outputActionPresetsOfType :: Map String [(String, String)]
