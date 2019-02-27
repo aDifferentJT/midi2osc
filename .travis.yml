@@ -10,5 +10,3 @@ matrix:
   allow_failures:
     - os: windows
 
-install: true
-script: make
