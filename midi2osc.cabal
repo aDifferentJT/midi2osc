@@ -68,7 +68,7 @@ executable midi2osc
   other-extensions:    RecordWildCards, DeriveGeneric, MultiParamTypeClasses, InstanceSigs, TupleSections, NoImplicitPrelude, FlexibleInstances, FunctionalDependencies, LambdaCase, OverloadedStrings
   
   -- Other library packages from which modules are imported.
-  build-depends:       base >=4.10 && <4.11, base-noprelude >=4.10 && <4.11, transformers >=0.5 && <0.6, containers >=0.5 && <0.6, threepenny-gui >=0.8 && <0.9, parsec >=3.1 && <3.2, cereal >=0.5 && <0.6, concurrent-extra >=0.7 && <0.8, array >=0.5 && <0.6, bimap >=0.3 && <0.4, time >=1.8 && <1.10, PortMidi >=0.2 && <0.3, bytestring >=0.10 && <0.11, Cabal >=2.0 && <2.1, hosc >=0.17 && <0.18, network >=2.8 && <2.9
+  build-depends:       base >=4.10 && <4.13, base-noprelude >=4.10 && <4.13, transformers >=0.5 && <0.6, containers >=0.5 && <0.6, threepenny-gui >=0.8 && <0.9, parsec >=3.1 && <3.2, cereal >=0.5 && <0.6, concurrent-extra >=0.7 && <0.8, array >=0.5 && <0.6, bimap >=0.3 && <0.4, time >=1.8 && <1.10, PortMidi >=0.2 && <0.3, bytestring >=0.10 && <0.11, Cabal >=2.0 && <2.1, hosc >=0.17 && <0.18, network >=2.8 && <2.9
   
   -- Directories containing source files.
   -- hs-source-dirs:      
