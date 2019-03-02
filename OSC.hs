@@ -12,7 +12,7 @@ module OSC
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Exception (Exception, throw, try, IOException)
-import Control.Monad (void, forever)
+import Control.Monad (void, when, forever)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
@@ -63,7 +63,7 @@ udp_server' h p = do
   a:_ <- N.getAddrInfo (Just hints) h (Just (show p))
   s <- N.socket (N.addrFamily a) (N.addrSocketType a) (N.addrProtocol a)
   N.setSocketOption s N.ReuseAddr 1
-  N.setSocketOption s N.ReusePort 1
+  when (N.isSupportedSocketOption N.ReusePort) $ N.setSocketOption s N.ReusePort 1
   N.bind s (N.addrAddress a)
   return (UDP s)
 
