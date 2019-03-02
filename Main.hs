@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, DeriveAnyClass #-}
 
 module Main (main) where
 
@@ -9,8 +9,10 @@ import MidiCore
 import Output
 
 import Control.Concurrent (threadDelay)
+import Control.Exception (Exception, throw)
 import Control.Monad (void, when)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
+import Data.Maybe (fromMaybe)
 import Data.Set (member)
 import System.Environment (getArgs)
 
@@ -39,9 +41,12 @@ eventCallback State{..} control = do
   midiFeedback State{..} control
   return ()
 
+data MissingParameterException = MissingParameterException
+  deriving (Show, Exception)
+
 main :: IO ()
 main = do
-  state <- stateFromConf . head =<< getArgs
+  state <- stateFromConf . fromMaybe (throw MissingParameterException) . head =<< getArgs
 
   runGUI state
 

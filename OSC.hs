@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, DeriveAnyClass, ScopedTypeVariables #-}
 
 module OSC
   ( setOSCValue
@@ -11,7 +11,8 @@ module OSC
   ) where
 
 import Control.Concurrent (forkIO, threadDelay)
-import Control.Monad (void)
+import Control.Exception (Exception, throw, try, IOException)
+import Control.Monad (void, forever)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
@@ -38,6 +39,9 @@ import Network.Socket (AddrInfo (AddrInfo), addrAddress, getAddrInfo)
 
 data OSCConnection = OSCConnection (IO UDP) (IO UDP) String Int (IORef (Map String (Float -> IO ())))
 
+data OSCException = OSCNotANumberException
+  deriving (Show, Exception)
+
 sendOSC :: MonadIO m => OSCConnection -> Message -> m ()
 sendOSC (OSCConnection udp _ _ _ _) msg = liftIO $ withTransport udp (sendMessage msg)
 
@@ -47,7 +51,7 @@ sendOSCFromServer (OSCConnection _ udp a p _) m = liftIO $ do
   with_udp udp $ \udp' -> sendTo udp' (Packet_Message m) addrAddress
 
 sendRegisterMessages :: OSCConnection -> String -> IO ()
-sendRegisterMessages oscConn m = void . forkIO . infLoop $ do
+sendRegisterMessages oscConn m = void . forkIO . forever $ do
   sendOSCFromServer oscConn (Message m [])
   threadDelay 9000000
 
@@ -76,7 +80,7 @@ askForOSCValue :: MonadIO m => OSCConnection -> String -> m ()
 askForOSCValue conn path = sendOSCFromServer conn . Message path $ []
 
 listenToOSC :: IORef (Map String (Float -> IO ())) -> IO UDP -> IO ()
-listenToOSC callbacks udp = void . forkIO . withTransport udp . infLoop $
+listenToOSC callbacks udp = void . forkIO . withTransport udp . forever $
   recvMessages >>= mapM_ (\(Message path datum) -> lift . runMaybeT_ $ do
     callback <- MaybeT $ lookup path <$> readIORef callbacks
     lift . callback . floatFromDatum $ datum
@@ -97,4 +101,4 @@ floatFromDatum [OSC.Int64  v] = fromIntegral v
 floatFromDatum [OSC.Float  v] = v
 floatFromDatum [OSC.Double v] = realToFrac v
 floatFromDatum []             = 0
-floatFromDatum  _             = error "OSC message doesn't contain a number"
+floatFromDatum  _             = throw OSCNotANumberException

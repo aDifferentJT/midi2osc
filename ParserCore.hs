@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+
 module ParserCore
   ( integer
   , sign
@@ -15,9 +17,13 @@ module ParserCore
 
 import MidiCore
 
+import Control.Exception (Exception, throw)
 import Control.Monad (void)
 import Data.Char (digitToInt)
 import Text.ParserCombinators.Parsec
+
+newtype ParseException = ParseException ParseError
+  deriving (Show, Exception)
 
 integer :: Parser Integer
 integer = sign <*> natural
@@ -73,7 +79,7 @@ midiControl = try midiButton <|> try midiFader
 parseString :: Parser a -> String -> a
 parseString p' str =
   case parse p "" str of
-    Left e  -> error $ show e
+    Left e  -> throw $ ParseException e
     Right r -> r
   where p = p' >>= (eof >>) . return
 
@@ -81,5 +87,5 @@ parseFile :: Parser a -> String -> IO a
 parseFile p file =
   do program  <- readFile file
      case parse p "" program of
-       Left e  -> print e >> fail "parse error"
+       Left e  -> throw $ ParseException e
        Right r -> return r

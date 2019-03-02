@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase, RecordWildCards, OverloadedStrings #-}
+{-# LANGUAGE LambdaCase, RecordWildCards, OverloadedStrings, DeriveAnyClass #-}
 
 module GUI (runGUI) where
 
@@ -8,6 +8,7 @@ import Output
 import OutputCore
 
 import Control.Concurrent (forkIO)
+import Control.Exception (Exception, throw)
 import Control.Monad (void)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
@@ -16,6 +17,9 @@ import Data.Maybe (maybe)
 
 import qualified Graphics.UI.Threepenny      as UI
 import           Graphics.UI.Threepenny.Core hiding (empty)
+
+data GUIException = UnexpectedSelectionException
+  deriving (Show, Exception)
 
 makeUIOption :: (String, String) -> UI Element
 makeUIOption (t, v) = UI.option # set UI.text t # set UI.value v
@@ -227,7 +231,7 @@ buildPage State{..} win = do
         SelectedControl c -> do
           liftIO $ updateControlOutput State{..} c o
           hideAll
-        _ -> error "Expected control to be selected"
+        _ -> throw UnexpectedSelectionException
 
   let setAction :: OutputAction -> UI ()
       setAction o = (liftIO . readIORef $ selected) >>= \case
@@ -241,7 +245,7 @@ buildPage State{..} win = do
                                            #+ map makeUIOption (outputChannelPresetsOfType ! oType)
                                            # set UI.selection Nothing
           return ()
-        _ -> error "Expected action to be selected"
+        _ -> throw UnexpectedSelectionException
 
   let getOutputActionPreset :: MaybeT UI String
       getOutputActionPreset = do
@@ -301,7 +305,7 @@ buildPage State{..} win = do
               Function f -> lift $ f <$> outputActionField # get UI.value
             o' <- MaybeT . return $ outputCombine o oA
             lift . liftIO $ updateControlOutput State{..} c o'
-          _ -> error "Expected channel to be selected"
+          _ -> throw UnexpectedSelectionException
         hideAll
 
   let respondToOutputChannelPresetChanged :: a -> IO ()

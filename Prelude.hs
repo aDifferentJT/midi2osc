@@ -10,10 +10,11 @@ module Prelude
   , lookupKeysWithValue
   , Factory (Value, Function)
   , runFactory
-  , infLoop
   , runMaybeT_
   , sequence_
   , mapM_
+  , head
+  , tail
   , lookup
   , (!)
   , fromList
@@ -21,7 +22,7 @@ module Prelude
   , module BasePrelude
   ) where
 
-import BasePrelude hiding (lookup, sequence_, mapM_)
+import BasePrelude hiding (lookup, sequence_, mapM_, head, tail)
 import qualified BasePrelude
 import Control.Arrow (first)
 import Control.Monad (void)
@@ -68,9 +69,6 @@ runFactory :: Factory a b -> a -> b
 runFactory (Value v)    = const v
 runFactory (Function f) = f
 
-infLoop :: Monad m => m a -> m a
-infLoop x = x >> infLoop x
-
 runMaybeT_ :: Monad m => MaybeT m () -> m ()
 runMaybeT_ = void . runMaybeT
 
@@ -79,6 +77,14 @@ sequence_ = BasePrelude.sequence_
 
 mapM_ :: (Foldable t, Monad m) => (a -> m ()) -> t a -> m ()
 mapM_ = BasePrelude.mapM_
+
+head :: [a] -> Maybe a
+head  []   = Nothing
+head (x:_) = Just x
+
+tail :: [a] -> Maybe [a]
+tail  []    = Nothing
+tail (_:xs) = Just xs
 
 class Lookupable t k a | t -> k, t -> a where
   lookup :: k -> t -> Maybe a
