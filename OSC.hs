@@ -22,9 +22,8 @@ import Distribution.System (buildOS, OS(Linux, OSX, Windows))
 
 import qualified Sound.OSC as OSC (Datum (Int32, Int64, Float, Double))
 import Sound.OSC
-  (UDP
+  ( UDP (UDP)
   , openUDP
-  , udp_server
   , udpServer
   , Message (Message)
   , Datum
@@ -35,7 +34,8 @@ import Sound.OSC
   , with_udp
   , Packet (Packet_Message)
   )
-import Network.Socket (AddrInfo (AddrInfo), addrAddress, getAddrInfo)
+import Network.Socket --(AddrInfo (AddrInfo), addrAddress, getAddrInfo)
+import qualified Network.Socket as N
 
 data OSCConnection = OSCConnection (IO UDP) (IO UDP) String Int (IORef (Map String (Float -> IO ())))
 
@@ -48,22 +48,36 @@ sendOSC (OSCConnection udp _ _ _ _) msg = liftIO $ withTransport udp (sendMessag
 sendOSCFromServer :: MonadIO m => OSCConnection -> Message -> m ()
 sendOSCFromServer (OSCConnection _ udp a p _) m = liftIO $ do
   AddrInfo{..}:_ <- getAddrInfo Nothing (Just a) (Just . show $ p)
-  with_udp udp $ \udp' -> sendTo udp' (Packet_Message m) addrAddress
+  either (\(e :: IOException) -> print ("Sending failed: " ++ show e)) return =<< (try $ with_udp udp $ \udp' -> Sound.OSC.sendTo udp' (Packet_Message m) addrAddress)
 
 sendRegisterMessages :: OSCConnection -> String -> IO ()
 sendRegisterMessages oscConn m = void . forkIO . forever $ do
   sendOSCFromServer oscConn (Message m [])
   threadDelay 9000000
 
+-- | Variant of 'udpServer' that doesn't require the host address.
+udp_server' :: Maybe String -> Int -> IO UDP
+udp_server' h p = do
+  let hints =
+        N.defaultHints
+        {N.addrFlags = [N.AI_PASSIVE,N.AI_NUMERICSERV]
+        ,N.addrSocketType = N.Datagram}
+  a:_ <- N.getAddrInfo (Just hints) h (Just (show p))
+  s <- N.socket (N.addrFamily a) (N.addrSocketType a) (N.addrProtocol a)
+  N.setSocketOption s N.ReuseAddr 1
+  N.setSocketOption s N.ReusePort 1
+  N.bind s (N.addrAddress a)
+  return (UDP s)
+
 openOSCConnection :: (String, Int, Int, [String]) -> IO OSCConnection
 openOSCConnection (a, pO, pF, regs) = do
   callbacks <- newIORef empty
   let udpO = openUDP a pO
-  let udpFI = udp_server pF
+  let udpFI = udp_server' Nothing pF
   let udpFO = case buildOS of
         Windows -> udpServer "0.0.0.0" pF
         Linux   -> udpFI
-        OSX     -> udpFI
+        OSX     -> udp_server' (Just "0.0.0.0") pF
         _       -> udpFI
   let oscConn = OSCConnection udpO udpFO a pO callbacks
   mapM_ (sendRegisterMessages oscConn) regs
