@@ -18,13 +18,11 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
 import Data.IORef (IORef, newIORef, readIORef, modifyIORef', writeIORef)
 import Data.Map.Strict (Map, insert, delete, empty)
-import Distribution.System (buildOS, OS(Linux, OSX, Windows))
 
 import qualified Sound.OSC as OSC (Datum (Int32, Int64, Float, Double))
 import Sound.OSC
   ( UDP (UDP)
   , openUDP
-  , udpServer
   , Message (Message)
   , Datum
   , withTransport
@@ -74,11 +72,7 @@ openOSCConnection (a, pO, pF, regs) = do
   callbacks <- newIORef empty
   let udpO = openUDP a pO
   let udpFI = udp_server' Nothing pF
-  let udpFO = case buildOS of
-        Windows -> udpServer "0.0.0.0" pF
-        Linux   -> udpFI
-        OSX     -> udp_server' (Just "0.0.0.0") pF
-        _       -> udpFI
+  let udpFO = udp_server' (Just "0.0.0.0") pF
   let oscConn = OSCConnection udpO udpFO a pO callbacks
   mapM_ (sendRegisterMessages oscConn) regs
   listenToOSC callbacks udpFI
