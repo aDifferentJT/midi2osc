@@ -12,9 +12,8 @@ module MidiCore
   ) where
 
 import Control.Monad ((<=<), when, filterM)
-import Control.Exception (Exception, throw)
+import Control.Exception (Exception, throwIO)
 import Data.List (isPrefixOf)
-import Data.Maybe (fromMaybe)
 import Data.Serialize (Serialize)
 import Data.Word (Word8)
 import GHC.Generics (Generic)
@@ -69,12 +68,12 @@ instance Show ControlState where
 
 openDevice :: String -> IO (PMStream, PMStream)
 openDevice d = do
-  _ <- either (throw MidiInitialisationException) id <$> initialize
+  _ <- either (const . throwIO $ MidiInitialisationException) return =<< initialize
   devices <- filterM (return . isPrefixOf d . name <=< getDeviceInfo) . upTo =<< countDevices
-  when (null devices) $ throw (DeviceNotFoundException d)
-  inDevice <- fromMaybe (throw (InputDeviceNotFoundException d)) . head <$> filterM (return . input <=< getDeviceInfo) devices
-  outDevice <- fromMaybe (throw (OutputDeviceNotFoundException d)) . head <$> filterM (return . output <=< getDeviceInfo) devices
-  inStream <- either (throw (InputDeviceOpeningException inDevice)) id <$> openInput inDevice
-  outStream <- either (throw (OutputDeviceOpeningException outDevice)) id <$> openOutput outDevice 0
+  when (null devices) $ throwIO (DeviceNotFoundException d)
+  inDevice <- maybe (throwIO (InputDeviceNotFoundException d)) return . head =<< filterM (return . input <=< getDeviceInfo) devices
+  outDevice <- maybe (throwIO (OutputDeviceNotFoundException d)) return . head =<< filterM (return . output <=< getDeviceInfo) devices
+  inStream <- either (const . throwIO . InputDeviceOpeningException $ inDevice) return =<< openInput inDevice
+  outStream <- either (const . throwIO . OutputDeviceOpeningException $ outDevice) return =<< openOutput outDevice 0
   return (inStream, outStream)
 

@@ -17,7 +17,7 @@ module ParserCore
 
 import MidiCore
 
-import Control.Exception (Exception, throw)
+import Control.Exception (Exception, throw, throwIO)
 import Control.Monad (void)
 import Data.Char (digitToInt)
 import Text.ParserCombinators.Parsec
@@ -84,8 +84,8 @@ parseString p' str =
   where p = p' >>= (eof >>) . return
 
 parseFile :: Parser a -> String -> IO a
-parseFile p file =
-  do program  <- readFile file
-     case parse p "" program of
-       Left e  -> throw $ ParseException e
-       Right r -> return r
+parseFile p file = do
+  program  <- readFile file
+  case parse p "" program of
+    Left e  -> throwIO $ ParseException e
+    Right r -> return r

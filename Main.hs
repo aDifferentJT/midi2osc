@@ -9,10 +9,9 @@ import MidiCore
 import Output
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (Exception, throw)
+import Control.Exception (Exception, throwIO)
 import Control.Monad (void, when)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
-import Data.Maybe (fromMaybe)
 import Data.Set (member)
 import System.Environment (getArgs)
 
@@ -46,7 +45,7 @@ data MissingParameterException = MissingParameterException
 
 main :: IO ()
 main = do
-  state <- stateFromConf . fromMaybe (throw MissingParameterException) . head =<< getArgs
+  state <- stateFromConf =<< maybe (throwIO MissingParameterException) return . head =<< getArgs
 
   runGUI state
 

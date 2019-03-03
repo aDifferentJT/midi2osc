@@ -8,7 +8,7 @@ import Output
 import OutputCore
 
 import Control.Concurrent (forkIO)
-import Control.Exception (Exception, throw)
+import Control.Exception (Exception, throwIO)
 import Control.Monad (void)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (MaybeT))
@@ -20,6 +20,9 @@ import           Graphics.UI.Threepenny.Core hiding (empty)
 
 data GUIException = UnexpectedSelectionException
   deriving (Show, Exception)
+
+throwUI :: Exception e => e -> UI a
+throwUI = liftIO . throwIO
 
 makeUIOption :: (String, String) -> UI Element
 makeUIOption (t, v) = UI.option # set UI.text t # set UI.value v
@@ -231,7 +234,7 @@ buildPage State{..} win = do
         SelectedControl c -> do
           liftIO $ updateControlOutput State{..} c o
           hideAll
-        _ -> throw UnexpectedSelectionException
+        _ -> throwUI UnexpectedSelectionException
 
   let setAction :: OutputAction -> UI ()
       setAction o = (liftIO . readIORef $ selected) >>= \case
@@ -245,7 +248,7 @@ buildPage State{..} win = do
                                            #+ map makeUIOption (outputChannelPresetsOfType ! oType)
                                            # set UI.selection Nothing
           return ()
-        _ -> throw UnexpectedSelectionException
+        _ -> throwUI UnexpectedSelectionException
 
   let getOutputActionPreset :: MaybeT UI String
       getOutputActionPreset = do
@@ -305,7 +308,7 @@ buildPage State{..} win = do
               Function f -> lift $ f <$> outputActionField # get UI.value
             o' <- MaybeT . return $ outputCombine o oA
             lift . liftIO $ updateControlOutput State{..} c o'
-          _ -> throw UnexpectedSelectionException
+          _ -> throwUI UnexpectedSelectionException
         hideAll
 
   let respondToOutputChannelPresetChanged :: a -> IO ()

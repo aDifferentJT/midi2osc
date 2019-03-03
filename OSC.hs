@@ -46,7 +46,7 @@ sendOSC (OSCConnection udp _ _ _ _) msg = liftIO $ withTransport udp (sendMessag
 sendOSCFromServer :: MonadIO m => OSCConnection -> Message -> m ()
 sendOSCFromServer (OSCConnection _ udp a p _) m = liftIO $ do
   AddrInfo{..}:_ <- getAddrInfo Nothing (Just a) (Just . show $ p)
-  either (\(e :: IOException) -> print ("Sending failed: " ++ show e)) return =<< (try $ with_udp udp $ \udp' -> Sound.OSC.sendTo udp' (Packet_Message m) addrAddress)
+  either (\(e :: IOException) -> print ("Sending failed: " ++ show e)) return =<< try (with_udp udp $ \udp' -> Sound.OSC.sendTo udp' (Packet_Message m) addrAddress)
 
 sendRegisterMessages :: OSCConnection -> String -> IO ()
 sendRegisterMessages oscConn m = void . forkIO . forever $ do
@@ -54,8 +54,8 @@ sendRegisterMessages oscConn m = void . forkIO . forever $ do
   threadDelay 9000000
 
 -- | Variant of 'udpServer' that doesn't require the host address.
-udp_server' :: Maybe String -> Int -> IO UDP
-udp_server' h p = do
+udpServer' :: Maybe String -> Int -> IO UDP
+udpServer' h p = do
   let hints =
         N.defaultHints
         {N.addrFlags = [N.AI_PASSIVE,N.AI_NUMERICSERV]
@@ -71,8 +71,8 @@ openOSCConnection :: (String, Int, Int, [String]) -> IO OSCConnection
 openOSCConnection (a, pO, pF, regs) = do
   callbacks <- newIORef empty
   let udpO = openUDP a pO
-  let udpFI = udp_server' Nothing pF
-  let udpFO = udp_server' (Just "0.0.0.0") pF
+  let udpFI = udpServer' Nothing pF
+  let udpFO = udpServer' (Just "0.0.0.0") pF
   let oscConn = OSCConnection udpO udpFO a pO callbacks
   mapM_ (sendRegisterMessages oscConn) regs
   listenToOSC callbacks udpFI

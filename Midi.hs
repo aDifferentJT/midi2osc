@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, DeriveAnyClass #-}
+{-# LANGUAGE RecordWildCards, LambdaCase, DeriveAnyClass #-}
 
 module Midi
   ( MidiControl (MidiButton)
@@ -24,7 +24,7 @@ import MidiCore
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Lock (Lock, acquire, release)
 import qualified Control.Concurrent.Lock as Lock (new)
-import Control.Exception (Exception, throw)
+import Control.Exception (Exception, throw, throwIO)
 import Control.Monad (void, when, forever)
 import Data.Array (bounds)
 import Data.Bool (bool)
@@ -44,6 +44,7 @@ type ControlCallback = ControlState -> IO ()
 data MidiException = MidiControlMissingFromProfileException MidiControl
                    | ControlMissingFromProfileException Control
                    | EventReadingException
+                   | UnknownMidiMessageException
   deriving (Show, Exception)
 
 midiState :: State -> MidiId -> MidiValue -> ControlState
@@ -55,7 +56,7 @@ midiState State{..} n (MidiFaderValue  v) = ControlState (fromMaybe (throw (Midi
 processEvents :: State -> ControlCallback -> IO ()
 processEvents State{..} callback = forever $ do
   startTime <- getCurrentTime
-  sequence_ =<< map ((>>= callback) . getControl State{..} . bytes . message) . either (throw EventReadingException) id <$> readEvents stream
+  mapM_ ((>>= callback) . getControl State{..} . bytes . message) =<< either (const . throwIO $ EventReadingException) return =<< readEvents stream
   endTime <- getCurrentTime
   threadDelay . truncate $ 1000000 * pollRate - diffUTCTime endTime startTime
   return ()
@@ -67,26 +68,23 @@ midiValueFromState (ControlState _ (MidiFaderValue  v)) = fromIntegral v / 127.0
 midiButtonValueFromFloat :: Float -> MidiValue
 midiButtonValueFromFloat = MidiButtonValue . (/= 0.0)
 
-getControl :: State -> [Word8] -> IO ControlState
-getControl State{..} [0x90,n',0x7F] = do
+getButton :: State -> Word8 -> Bool -> IO ControlState
+getButton State{..} n' v = do
   let n = MidiId n'
   let mc = MidiButton n
-  let c = fromMaybe (throw (MidiControlMissingFromProfileException mc)) . lookup mc $ profile
+  c <- maybe (throwIO (MidiControlMissingFromProfileException mc)) return . lookup mc $ profile
   if member c bankLefts || member c bankRights then
-    return . ControlState c $ MidiButtonValue True
+    return . ControlState c . MidiButtonValue $ v
   else do
-    flipStateOfButton n
+    when v $ flipStateOfButton n
     ControlState c <$> stateOfButton n
-getControl State{..} [0x80,n',0x7F] = do
-  let n = MidiId n'
-  let mc = MidiButton n
-  let c = fromMaybe (throw (MidiControlMissingFromProfileException mc)) . lookup mc $ profile
-  if member c bankLefts || member c bankRights then
-    return . ControlState c $ MidiButtonValue False
-  else ControlState c <$> stateOfButton n
-getControl state [0xB0,n      ] = return $ midiState state (MidiId n) (MidiFaderValue 0)
-getControl state [0xB0,n,l    ] = return $ midiState state (MidiId n) (MidiFaderValue l)
-getControl _      _             = fail "Unknown Midi Message"
+
+getControl :: State -> [Word8] -> IO ControlState
+getControl state [0x90,n,0x7F] = getButton state n True
+getControl state [0x80,n,0x7F] = getButton state n False
+getControl state [0xB0,n     ] = return $ midiState state (MidiId n) (MidiFaderValue 0)
+getControl state [0xB0,n,l   ] = return $ midiState state (MidiId n) (MidiFaderValue l)
+getControl _      _            = throwIO UnknownMidiMessageException
 
 type ButtonStates = Map MidiId MidiValue
 
@@ -127,7 +125,7 @@ allLeds State{..} = fromList . mapMaybe f . toList $ profile
         f  _                = Nothing
 
 performFeedback :: State -> Control -> MidiValue -> IO ()
-performFeedback State{..} c v = case fromMaybe (throw (ControlMissingFromProfileException c)) . lookupR c $ profile of
+performFeedback State{..} c v = (maybe (throwIO (ControlMissingFromProfileException c)) return . lookupR c $ profile) >>= \case
   MidiButton n -> do
     r <- setLed State{..} c v
     case r of

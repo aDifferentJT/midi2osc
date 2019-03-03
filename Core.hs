@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, TupleSections, RecordWildCards, MultiParamTypeClasses #-}
+{-# LANGUAGE DeriveGeneric, TupleSections, RecordWildCards, MultiParamTypeClasses, DeriveAnyClass #-}
 
 module Core
   ( Control
@@ -57,7 +57,7 @@ import ProfileParser
 
 import Prelude hiding (readFile, writeFile)
 import Control.Applicative ((<|>))
-import Control.Exception (throwIO, catch, IOException)
+import Control.Exception (Exception, throwIO, catch)
 import Data.Array (Array, (//))
 import Data.ByteString (readFile, writeFile)
 import Data.IORef (IORef, readIORef, newIORef, modifyIORef')
@@ -74,6 +74,9 @@ import Sound.PortMidi (PMStream)
 data Mapping = Mapping (Map Control Output) (Map Channel OutputChannel) (Map Action OutputAction)
   deriving (Generic)
 instance Serialize Mapping
+
+data InvalidFileException = InvalidFileException
+  deriving (Show, Exception)
 
 mapCs :: (Map Control Output -> Map Control Output) -> Mapping -> Mapping
 mapCs f (Mapping cs chs as) = Mapping (f cs) chs as
@@ -215,5 +218,5 @@ save :: String -> Mapping -> IO ()
 save filename = writeFile filename . encode
 
 open :: String -> IO Mapping
-open filename = catch (either (const . throwIO . userError $ "Invalid file") return . decode =<< readFile filename) (const . return $ emptyMapping :: IOException -> IO Mapping)
+open filename = catch (either (const . throwIO $ InvalidFileException) return . decode =<< readFile filename) (const . return $ emptyMapping :: InvalidFileException -> IO Mapping)
 
