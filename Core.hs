@@ -24,6 +24,7 @@ module Core
   , outputsInMapping
   , State (State)
   , profile
+  , fbProfile
   , stream
   , streamFb
   , oscConnections
@@ -177,6 +178,7 @@ outputsInMapping state mapping = mapMaybe (outputForControl state mapping) (cont
 
 data State = State
   { profile :: Profile
+  , fbProfile :: FeedbackProfile
   , stream :: PMStream
   , streamFb :: PMStream
   , oscConnections :: Map Connection OSCConnection
@@ -198,7 +200,7 @@ data State = State
 stateFromConf :: FilePath -> IO State
 stateFromConf confFn = do
   Conf{..} <- openConf confFn
-  profile <- openProfile confProfile
+  (profile, fbProfile) <- openProfile confProfile
   (stream, streamFb) <- openDevice confMidiDevice
   oscConnections <- fromList <$> mapM (\(c,a) -> (c,) <$> openOSCConnection a) confOSCAddresses
   let filenames = mkArray confBanks
