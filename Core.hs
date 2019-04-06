@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric, TupleSections, RecordWildCards, MultiParamTypeClasses, DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric, TupleSections, RecordWildCards, MultiParamTypeClasses, DeriveAnyClass, ScopedTypeVariables #-}
 
 module Core
   ( Control
@@ -58,7 +58,8 @@ import ProfileParser
 
 import Prelude hiding (readFile, writeFile)
 import Control.Applicative ((<|>))
-import Control.Exception (Exception, throwIO, catch)
+import Control.Exception (Exception, throw, catches, IOException)
+import qualified Control.Exception as Exception (Handler (Handler))
 import Data.Array (Array, (//))
 import Data.ByteString (readFile, writeFile)
 import Data.IORef (IORef, readIORef, newIORef, modifyIORef')
@@ -219,6 +220,14 @@ stateFromConf confFn = do
 save :: String -> Mapping -> IO ()
 save filename = writeFile filename . encode
 
+rightOrThrow :: Exception e => e -> (Either a b) -> b
+rightOrThrow e (Left _)  = throw e
+rightOrThrow _ (Right x) = x
+
 open :: String -> IO Mapping
-open filename = catch (either (const . throwIO $ InvalidFileException) return . decode =<< readFile filename) (const . return $ emptyMapping :: InvalidFileException -> IO Mapping)
+open filename = catches
+  (rightOrThrow InvalidFileException . decode <$> readFile filename)
+  [ Exception.Handler $ \(_ :: InvalidFileException) -> return emptyMapping
+  , Exception.Handler $ \(_ :: IOException) -> return emptyMapping
+  ]
 
